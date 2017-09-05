@@ -32,7 +32,7 @@ class thread
             Location loc = frame.location();
 
             sb.append(" (location "
-                      + ((loc != null) ? loc.toString() : "")
+                      + ((loc != null) ? (new location(loc)).toString() : "")
                       + ")");
             
             List<LocalVariable> vars = frame.visibleVariables();

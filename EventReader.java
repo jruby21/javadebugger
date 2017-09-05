@@ -58,6 +58,21 @@ class EventReader extends Thread
                         ;
                     } else if (event instanceof ClassUnloadEvent) {
                         ;
+                    } else if (event instanceof VMDeathEvent)   {
+                        System.out.println("(VMDeath)");
+                    } else if (event instanceof VMDisconnectEvent)   {
+                        System.out.println("(VMDisconnectEvent)");
+                    } else if (event instanceof ExceptionEvent)   {
+                        ExceptionEvent  e        = (ExceptionEvent) event;
+                        ObjectReference re       = e.exception();
+                        Field           msgField = re.referenceType().fieldByName("detailMessage"); 
+                        StringReference msgVal   = (StringReference) re.getValue(msgField); 
+
+                        System.out.println("(exception "
+                                           + e.exception().type().name()
+                                           + " "
+                                           + (msgVal == null ? "null" : msgVal.value())
+                                           + ")");
                     } else if (event instanceof ThreadStartEvent) {
                         System.out.println("(threadstart " 
                                            + (new thread(((ThreadStartEvent) event).thread())).toString()
