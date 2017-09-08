@@ -10,79 +10,112 @@ class thread
         tr = t;
     }
 
+    public ThreadReference getThread()
+    {
+        return tr;
+    }
+    
     public String frame(int frameNumber)
     {
-        StackFrame    frame = null;
-        StringBuilder sb    = new StringBuilder("(frame "
-                                                + frameNumber);
+        StackFrame                             frame             = null;
+        Location                                   loc                  = null;
+        List<LocalVariable>               vars               = null;
+        Map<LocalVariable, Value> values           = null;
+        int                                              framecount  = 0;
+        StringBuilder                           sb                   = new StringBuilder("frame "
+                                                                                         + frameNumber);
+
+        if (!tr.isSuspended())
+
+                return(sb.toString() + " error  \"thread not suspended\"");            
 
         try {
-            sb.append("/" + tr.frameCount() + " ");
-            
-            if (!tr.isSuspended() || frameNumber < 0 || frameNumber >= tr.frameCount())
-
-                return(sb.toString() + ")");
-
-            frame = tr.frame(frameNumber);
-
-            if (frame == null)
-        
-                return(sb.toString() + ")");
+            framecount = tr.frameCount();
+        } catch (IncompatibleThreadStateException e)  {
+            return(sb.toString() + " error  \"thread not suspended\"");
+        }
       
-            Location loc = frame.location();
+        sb.append("/" + framecount +  " ");
 
-            sb.append(" (location "
-                      + ((loc != null) ? (new location(loc)).toString() : "")
-                      + ")");
-            
-            List<LocalVariable> vars = frame.visibleVariables();
+        if (frameNumber < 0 || frameNumber >= framecount)
 
-            if (vars.size() == 0)
+                return(sb.toString() + " error  \"no such frame\"");            
 
-                {
-                    sb.append("(arguments ) (locals ))");
-                    return(sb.toString());
-                }
+        try {
+            frame = tr.frame(frameNumber);
+            loc      = frame.location();
+        } catch (InvalidStackFrameException e)  {
+            return(sb.toString() + " error  \"invalid frame state\"");
+        } catch (IncompatibleThreadStateException e) {
+            return(sb.toString() + " error  \"invalid thread state\"");
+        } catch (IndexOutOfBoundsException e) {
+            return(sb.toString() + " error  \"no such frame\"");
+        }
 
-            Map<LocalVariable, Value> values = frame.getValues(vars);
-
-            // arguments
-
-            StringBuilder ab = new StringBuilder("(arguments ");
-            StringBuilder lb = new StringBuilder("(locals ");
-            
-            for (LocalVariable var : vars)
-
-                {
-                    Value  val = values.get(var);
-                    String s   = "("
-                        + var.name()
-                        + " "
-                        + ((val == null) ? "null" : val.toString())
-                        + ") ";
-
-                    if (var.isArgument())
-
-                        ab.append(s);
-
-                    else
-
-                        lb.append(s);
-                }
-
-            sb.append(ab.toString() + ")" + " " + lb.toString() + ")");
-        } catch (AbsentInformationException | IncompatibleThreadStateException | IndexOutOfBoundsException e) {}
-
-        return(sb.toString() + ")");
-    }
+        if (frame == null)
         
+            return(sb.toString() + " error  \"no such frame\"");
+      
+        sb.append((loc != null) ? (new location(loc)).toString() : " location ");
+
+        try {
+            vars     = frame.visibleVariables();
+            values = frame.getValues(vars);
+        } catch (InvalidStackFrameException e)  {
+            return(sb.toString() + " error  \"invalid frame state\"");
+        } catch (AbsentInformationException e) {
+            return(sb.toString() + " error  \"values missing\"");
+        } catch (NativeMethodException e) {
+            return(sb.toString() + " error  \"native method\"");
+        }
+        
+        // arguments
+
+        StringBuilder ab = new StringBuilder(" arguments ");
+        StringBuilder lb  = new StringBuilder(" locals ");
+
+        if (vars != null)
+
+            {
+                for (LocalVariable var : vars)
+
+                    {
+                        String  s = var.name() + " ";
+
+                        if  (values != null)
+
+                            {
+                                Value  val = values.get(var);
+                                s = s + " " 
+                                    + ((val == null) ? " null" : val.toString())
+                                    + " ";
+                            }
+
+                        else
+
+                            s = s + " null";
+
+                        if (var.isArgument())
+
+                            ab.append(s);
+
+                        else
+
+                            lb.append(s);
+                    }
+            }
+        
+        return(sb.toString()
+               + " " + ab.toString()
+               + " " + lb.toString());
+    }
+
     public String toString()
     {
-        StringBuilder b = new StringBuilder("(thread "
+        StringBuilder b = new StringBuilder("thread "
                                             + tr.uniqueID()
                                             + " \'"
-                                            + tr.name()
-                                            + "\' ");
+                                            + tr.name());
 
         switch(tr.status())
 
@@ -130,7 +163,6 @@ class thread
         b.append(tr.isAtBreakpoint());
         b.append(" ");
         b.append(tr.isSuspended());
-        b.append(")");
         
         return b.toString();
     }
