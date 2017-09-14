@@ -1,0 +1,169 @@
+
+*** compile the java agent
+
+/home/jruby/tools/jdk1.8.0_131/bin/javac -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" debugger.java
+
+*** start the java agent
+
+/home/jruby/tools/jdk1.8.0_131/bin/java -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" debugger
+
+*** start the debuggee
+
+/home/jruby/tools/jdk1.8.0_131/bin/java -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" -agentlib:jdwp=transport=dt_socket,address=localhost:8000,server=y,suspend=y foo
+
+
+#+BEGIN_SRC emacs-lisp :tangle yes
+          (require 'ht)
+
+          (defun error(l)
+            (insert (concat "*** Error " (car l) "\n"))
+            (cdr l))
+
+          (defun location (file lineNumber)
+            (with-selected-window (next-window)
+              (find-file file)
+              (goto-line (string-to-number lineNumber))))
+
+          (defun sendDebuggerCommand ()
+            (interactive)
+            (beginning-of-line)
+            (let ((p (point))
+                  (b))
+              (end-of-line)
+              (process-send-string
+               proc
+               (concat  (setq b (buffer-substring-no-properties p (point))) "\n"))) ;
+            (insert "\n"))
+
+          (defun trackLocation ()
+            (interactive)
+            (beginning-of-line)
+            (if (looking-at ".*location[ ]+\\([^ ]+\\)[ ]+\\([0-9]+\\)")
+              (location (match-string-no-properties 1) (match-string-no-properties 2))))
+
+      (defvar javadebug-mode-map
+                  (let ((map (make-sparse-keymap)))
+                    (define-key map "\C-j" 'sendDebuggerCommand)
+                    (define-key map "\C-b" 'trackLocation)
+                  map))
+
+
+      (define-derived-mode javadebug-mode
+                  org-mode "JavaDebug"
+                  "Major mode java debugger.")
+
+
+    (javadebug-mode)
+
+          (defun error(l)
+            (insert (concat "*** Error " (car l) "\n"))
+            (cdr l))
+
+  (defun location (file lineNumber)
+            (with-selected-window (next-window)
+              (find-file file)
+              (goto-line (string-to-number lineNumber))))
+
+  (defun startProc ()
+    (let ((default-directory "/home/jruby/tmp/jdb/"))
+      (setq 
+       proc 
+       (start-process 
+        "my-process" 
+        (current-buffer) 
+        "/home/jruby/tools/jdk1.8.0_131/bin/java" 
+        "-cp" 
+        "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
+        "debugger"))
+      (set-process-filter proc 'javadebug-insertion-filter)
+      (goto-char (point-max))
+      (insert "** Starting debugger session\n")
+      (insert "attach localhost 8000")
+      (sendDebuggerCommand)))
+
+          (defun sendDebuggerCommand ()
+            (interactive)
+            (beginning-of-line)
+            (let ((p (point))
+                  (b))
+              (end-of-line)
+              (process-send-string
+               proc
+               (concat  (setq b (buffer-substring-no-properties p (point))) "\n"))) ;
+            (insert "\n"))
+
+          (defun trackLocation ()
+            (interactive)
+            (beginning-of-line)
+            (if (looking-at ".*location[ ]+\\([^ ]+\\)[ ]+\\([0-9]+\\)")
+              (location (match-string-no-properties 1) (match-string-no-properties 2))))
+
+     (defun javadebug-insertion-filter (proc string)
+       (when (buffer-live-p (process-buffer proc))
+         (with-current-buffer (process-buffer proc)
+             (save-excursion
+               ;; Insert the text at the end of the buffer
+               (goto-char (point-max))
+               (insert string)))))
+
+#+END_SRC
+
+#+RESULTS:
+: trackLocation
+
+
+
+      sss location foo.java 5
+
+
+
+** Starting debugger session
+Debugger started
+*** attach localhost 8000
+VMStartEvent in thread main
+vmstart thread 1 'mainrunning 0 false true
+attach created virtual machine
+*** run foo
+ClassPrepareEvent in thread main
+*** continue
+BreakpointEvent@foo:5 in thread main
+breakpoint thread 1 'mainrunning 1 true true location foo.java 5 main
+*** frame 1 0
+frame 0/1 location foo.java 5 main error  "values missing"
+*** quit
+Process my-process finished
+
+
+
+** Starting debugger session
+attach localhost 8000
+Debugger started
+attach created virtual machine
+VMStartEvent in thread main
+vmstart thread 1 'mainrunning 0 false true
+run foo
+ClassPrepareEvent in thread main
+continue
+BreakpointEvent@foo:5 in thread main
+breakpoint thread 1 'mainrunning 1 true true location foo.java 5 main
+step step
+continue
+VMDeathEvent
+VMDeath
+VMDisconnectEvent
+VMDisconnectEvent
+Exception com.sun.jdi.VMDisconnectedException
+
+** Starting debugger session
+attach localhost 8000
+Debugger started
+attach created virtual machine
+vm started thread 1 'mainrunning 0 false true
+run foo
+continue
+breakpoint thread 1 'mainrunning 1 true true location foo.java 5 main
+thread all
+threads thread 66 'Signal Dispatcherrunning 0 false true thread 67 'Finalizerwaiting 4 false true thread 68 'Reference Handlerwaiting 4 false true thread 1 'mainrunning 1 true true 
+thread 1
+thread 1 'mainrunning 1 true true
+
