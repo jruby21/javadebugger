@@ -30,43 +30,36 @@ public class debugger
     public static void main(String args[]) throws Exception
 
     {
-                System.out.println("b1 ");
         debugger d = new debugger();
-                System.out.println("b2 ");
         d.go(System.in);
-                System.out.println("b3 ");
     }
         
     void go(InputStream input) throws Exception
     {
-                System.out.println("b4 ");
+        System.out.println("Debugger started");
         BufferedReader in = new BufferedReader(new InputStreamReader(input));
 
         for (String s = in.readLine();
              !s.equalsIgnoreCase("exit");
              s = in.readLine())
 
-            {
-                System.out.println("a " + s);
             expr(new parser(s));
-            }
     }
 
     private String hostname = null;
-    private String port            = null;
-    private String threadid    = null;
-    private String frameid      = null;
-    private thread tr                 = null;
+    private String port     = null;
+    private String threadid = null;
+    private String frameid  = null;
+    private thread tr       = null;
     
     void expr(parser parse)
     {
         parser.TOKEN tok0;
         parser.TOKEN tok1;
-        System.out.println("b ");
+
         while (parse.hasNext())
             
             {
-                        System.out.println("c ");
                 switch (parse.next())
                     
                     {
@@ -75,10 +68,10 @@ public class debugger
 
                     case ATTACH:
 
-                        tok0           = parse.next();
+                        tok0     = parse.next();
                         hostname = parse.getString();
-                        tok1           = parse.next();
-                        port            = parse.getString();
+                        tok1     = parse.next();
+                        port     = parse.getString();
 
                         if (tok0 == parser.TOKEN.STRING
                             && tok1 == parser.TOKEN.STRING)
@@ -212,33 +205,46 @@ public class debugger
 
     private void attach(String host, String port)
     {
-        try
-            {
-                List<AttachingConnector> l = Bootstrap.virtualMachineManager().attachingConnectors();
+        List<AttachingConnector> l = Bootstrap.virtualMachineManager().attachingConnectors();
 
-                AttachingConnector ac = null;
+        AttachingConnector ac = null;
                         
-                for (AttachingConnector c: l) {
+        for (AttachingConnector c: l) {
                     
-                    if (c.name().equals("com.sun.jdi.SocketAttach")) {
-                        ac = c;
-                        break;
-                    }
-                }
+            if (c.name().equals("com.sun.jdi.SocketAttach")) {
+                ac = c;
+                break;
+            }
+        }
         
-                if (ac == null)
-                            
-                    throw new RuntimeException("Unable to locate ProcessAttachingConnector");
+        if (ac == null)
+                    
+            System.out.println("attach error - unable to locate ProcessAttachingConnector");
 
-                Map<String,Connector.Argument> env = ac.defaultArguments();
+        else
+
+            {
+                try {
+                    Map<String,Connector.Argument> env = ac.defaultArguments();
                 
-                env.get("hostname").setValue(host);
-                env.get("port").setValue(port);
+                    env.get("hostname").setValue(host);
+                    env.get("port").setValue(port);
                 
-                vm = ac.attach(env);
-                new EventReader(vm).start();
-            } catch (IOException | IllegalConnectorArgumentsException e) {
-            System.out.println(e.toString()); }
+                    vm = ac.attach(env);
+                    new EventReader(vm).start();
+                } catch (IOException | IllegalConnectorArgumentsException e) {
+                    System.out.println("attach error - " + e.toString());
+                    return;
+                }
+
+                if (vm == null)
+
+                    System.out.println("attach error - failed to create virtual machine");
+
+                else
+
+                    System.out.println("attach created virtual machine");
+            }
     }
 
     private void step(String threadID, int size, int depth)

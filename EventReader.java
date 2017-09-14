@@ -29,25 +29,18 @@ class EventReader extends Thread
 
     public void run()
     {
-        EventQueue     queue     = vm.eventQueue();
-        boolean        connected = true;
- 
-        while (connected)
+        for (boolean connected = true;
+             connected;)
 
             {
             try {
-                EventSet      eventSet         = queue.remove();
-                boolean       resumeStoppedApp = false;
-                EventIterator it               = eventSet.eventIterator();
+                EventIterator it = vm.eventQueue().remove().eventIterator();
 
                 while (it.hasNext()) {
 
                     Event event = (Event) it.next();
-                    System.out.println(event);
 
-                    if (event instanceof ExceptionEvent) {
-                        ;
-                    } else if (event instanceof BreakpointEvent) {
+                    if (event instanceof BreakpointEvent) {
                         BreakpointEvent bp = (BreakpointEvent) event;
                         System.out.println("breakpoint "
                                            + (new thread(bp.thread())).toString()
@@ -57,7 +50,7 @@ class EventReader extends Thread
                         ;
                     } else if (event instanceof StepEvent) {
                         StepEvent se = (StepEvent) event;
-                        System.out.println("breakpoint "
+                        System.out.println("step "
                                            + (new thread(se.thread())).toString()
                                            + " "
                                            + (new location(se.location())).toString());
@@ -98,13 +91,13 @@ class EventReader extends Thread
                                            + " "
                                            + (msgVal == null ? "null" : msgVal.value()));
                     } else if (event instanceof ThreadStartEvent) {
-                        System.out.println("threadstart " 
+                        System.out.println("thread started " 
                                            + (new thread(((ThreadStartEvent) event).thread())).toString());
                     } else if (event instanceof ThreadDeathEvent) {
-                        System.out.println("threaddeath " 
+                        System.out.println("thread died " 
                                            + (new thread(((ThreadStartEvent) event).thread())).toString());
                     } else if (event instanceof VMStartEvent) {
-                        System.out.println("vmstart " 
+                        System.out.println("vm started " 
                                            + (new thread(((VMStartEvent) event).thread())).toString());
                     } else {
                         ;
@@ -114,6 +107,7 @@ class EventReader extends Thread
                 // Do nothing. Any changes will be seen at top of loop.
             } catch (VMDisconnectedException discExc) {
                 System.out.println("Exception " + discExc);
+                connected = false;
                 break;
             }
         }

@@ -87,8 +87,7 @@ class thread
                             {
                                 Value  val = values.get(var);
                                 s = s + " " 
-                                    + ((val == null) ? " null" : val.toString())
-                                    + " ";
+                                    + ((val == null) ? " null" : val.toString());
                             }
 
                         else

@@ -24,7 +24,7 @@ class location
                 + " "
                 + loc.method().name();
         } catch (AbsentInformationException e) {
-            return "location error  \"not available\"";
+            return "location error  \"location not available\"";
         }
     }
 }
