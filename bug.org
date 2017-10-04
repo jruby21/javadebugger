@@ -1,3 +1,4 @@
+* Java Debugger
 
 *** compile the java agent
 
@@ -13,56 +14,29 @@
 
 
 #+BEGIN_SRC emacs-lisp :tangle yes
-          (require 'ht)
+  (require 'ht)
 
-          (defun error(l)
-            (insert (concat "*** Error " (car l) "\n"))
-            (cdr l))
+  (defun sendDebuggerCommand ()
+    (interactive)
+    (beginning-of-line)
+    (let ((p (point))
+          (b))
+      (end-of-line)
+      (process-send-string
+       proc
+       (concat  (setq b (buffer-substring-no-properties p (point))) "\n"))) ;
+    (insert "\n"))
 
-          (defun location (file lineNumber)
-            (with-selected-window (next-window)
-              (find-file file)
-              (goto-line (string-to-number lineNumber))))
+  (defvar javadebug-mode-map
+    (let ((map (make-sparse-keymap)))
+      (define-key map "\C-j" 'sendDebuggerCommand)
+      map))
 
-          (defun sendDebuggerCommand ()
-            (interactive)
-            (beginning-of-line)
-            (let ((p (point))
-                  (b))
-              (end-of-line)
-              (process-send-string
-               proc
-               (concat  (setq b (buffer-substring-no-properties p (point))) "\n"))) ;
-            (insert "\n"))
+  (define-derived-mode javadebug-mode
+    org-mode "JavaDebug"
+    "Major mode java debugger.")
 
-          (defun trackLocation ()
-            (interactive)
-            (beginning-of-line)
-            (if (looking-at ".*location[ ]+\\([^ ]+\\)[ ]+\\([0-9]+\\)")
-              (location (match-string-no-properties 1) (match-string-no-properties 2))))
-
-      (defvar javadebug-mode-map
-                  (let ((map (make-sparse-keymap)))
-                    (define-key map "\C-j" 'sendDebuggerCommand)
-                    (define-key map "\C-b" 'trackLocation)
-                  map))
-
-
-      (define-derived-mode javadebug-mode
-                  org-mode "JavaDebug"
-                  "Major mode java debugger.")
-
-
-    (javadebug-mode)
-
-          (defun error(l)
-            (insert (concat "*** Error " (car l) "\n"))
-            (cdr l))
-
-  (defun location (file lineNumber)
-            (with-selected-window (next-window)
-              (find-file file)
-              (goto-line (string-to-number lineNumber))))
+  (javadebug-mode)
 
   (defun startProc ()
     (let ((default-directory "/home/jruby/tmp/jdb/"))
@@ -70,7 +44,7 @@
        proc 
        (start-process 
         "my-process" 
-        (current-buffer) 
+        "*jdbugger*"
         "/home/jruby/tools/jdk1.8.0_131/bin/java" 
         "-cp" 
         "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
@@ -78,92 +52,89 @@
       (set-process-filter proc 'javadebug-insertion-filter)
       (goto-char (point-max))
       (insert "** Starting debugger session\n")
-      (insert "attach localhost 8000")
-      (sendDebuggerCommand)))
+      (insert "*** attach localhost 8000\n")
+      (process-send-string
+       proc
+       "attach localhost 8000\n"))
+    (delete-other-windows)
+    (setq sourceWindow (split-window-below))
+    (set-window-buffer sourceWindow (process-buffer proc)))
 
-          (defun sendDebuggerCommand ()
-            (interactive)
-            (beginning-of-line)
-            (let ((p (point))
-                  (b))
-              (end-of-line)
-              (process-send-string
-               proc
-               (concat  (setq b (buffer-substring-no-properties p (point))) "\n"))) ;
-            (insert "\n"))
 
-          (defun trackLocation ()
-            (interactive)
-            (beginning-of-line)
-            (if (looking-at ".*location[ ]+\\([^ ]+\\)[ ]+\\([0-9]+\\)")
-              (location (match-string-no-properties 1) (match-string-no-properties 2))))
+  (defun sendDebuggerCommand (command)
+    (interactive "Mdebugger command: ")
+    (process-send-string
+     proc
+     (concat  command "\n"));
+    (goto-char (point-max))
+    (insert (concat "*** " command "\n")))
 
-     (defun javadebug-insertion-filter (proc string)
-       (when (buffer-live-p (process-buffer proc))
-         (with-current-buffer (process-buffer proc)
-             (save-excursion
-               ;; Insert the text at the end of the buffer
-               (goto-char (point-max))
-               (insert string)))))
+  (setq javadebugpoint 0)
+  (defun noop (arg) )
+  (setq jdbuggerBuffer (current-buffer))
+
+  (defun jdbThread (in)
+    (with-current-buffer jdbuggerBuffer
+      (insert "|ID|Name|State|Frames|Breakpoint|Suspended|\n")
+      (insert "|----|")
+      (let ((pos -1))
+        (goto-char (point-max))
+        (insert (mapconcat
+                 (function (lambda (x)
+                             (setq pos (1+ pos))
+                             (concat (if (= 0 (% pos 6)) "\n" "") "|" x)))
+                 in
+                 ""))
+        (org-ctrl-c-ctrl-c)
+        (end-of-line)
+        (insert "\n"))))
+
+  (defun location (in)
+    (with-current-buffer (find-file (nth 0 in)))
+    (goto-line (string-to-number (nth 1 in)))
+    (message in))
+
+  (defun error(in)
+    (with-current-buffer jdbuggerBuffer
+      (insert (concat "*** Error " (car in) "\n"))))
+
+  (setq javadebugKeyWords
+        (ht
+         ("thread"   'jdbThread)
+         ("location" 'location)
+         ("error"    'error)))
+
+  (defun javadebug-insertion-filter (proc string)
+    (when (buffer-live-p (process-buffer proc))
+      (with-current-buffer (process-buffer proc)
+        (save-excursion
+          ;; Insert the text, advancing the process marker.
+          (goto-char (process-mark proc))
+          (insert string)
+          (set-marker (process-mark proc) (point))
+          (goto-char javadebugpoint)
+          (let ((commands nil))
+            (while (looking-at "\\([^\n]*\\)\n")
+              (setq javadebugpoint (match-end 0))
+              (goto-char javadebugpoint)
+              (setq commands (cons (split-string (match-string-no-properties 1) ",") commands)))
+            (dolist (args commands)
+              (funcall  (ht-get javadebugKeyWords (car args) 'noop) (cdr args))))))))
+
 
 #+END_SRC
 
-#+RESULTS:
-: trackLocation
-
-
-
-      sss location foo.java 5
-
 
 
 ** Starting debugger session
-Debugger started
 *** attach localhost 8000
-VMStartEvent in thread main
-vmstart thread 1 'mainrunning 0 false true
-attach created virtual machine
+| ID                   | Name    | State | Frames | Breakpoint | Suspended |
+|----------------------+---------+-------+--------+------------+-----------|
+| 65.Signal Dispatcher | running |     0 | false  | true       |           |
+|ID|Name|State|Frames|Breakpoint|Suspended|
+|----|
+
+| 66.Signal Dispatcher | running | 0 | false | true |
+
 *** run foo
-ClassPrepareEvent in thread main
 *** continue
-BreakpointEvent@foo:5 in thread main
-breakpoint thread 1 'mainrunning 1 true true location foo.java 5 main
-*** frame 1 0
-frame 0/1 location foo.java 5 main error  "values missing"
-*** quit
-Process my-process finished
-
-
-
-** Starting debugger session
-attach localhost 8000
-Debugger started
-attach created virtual machine
-VMStartEvent in thread main
-vmstart thread 1 'mainrunning 0 false true
-run foo
-ClassPrepareEvent in thread main
-continue
-BreakpointEvent@foo:5 in thread main
-breakpoint thread 1 'mainrunning 1 true true location foo.java 5 main
-step step
-continue
-VMDeathEvent
-VMDeath
-VMDisconnectEvent
-VMDisconnectEvent
-Exception com.sun.jdi.VMDisconnectedException
-
-** Starting debugger session
-attach localhost 8000
-Debugger started
-attach created virtual machine
-vm started thread 1 'mainrunning 0 false true
-run foo
-continue
-breakpoint thread 1 'mainrunning 1 true true location foo.java 5 main
-thread all
-threads thread 66 'Signal Dispatcherrunning 0 false true thread 67 'Finalizerwaiting 4 false true thread 68 'Reference Handlerwaiting 4 false true thread 1 'mainrunning 1 true true 
-thread 1
-thread 1 'mainrunning 1 true true
-

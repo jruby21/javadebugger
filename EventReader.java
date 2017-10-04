@@ -40,20 +40,18 @@ class EventReader extends Thread
 
                     Event event = (Event) it.next();
 
+                    System.out.println("event - " +  event.toString());
+                    
                     if (event instanceof BreakpointEvent) {
                         BreakpointEvent bp = (BreakpointEvent) event;
-                        System.out.println("breakpoint "
+                        System.out.println("breakpoint\n"
                                            + (new thread(bp.thread())).toString()
-                                           + " "
                                            + (new location(bp.location())).toString());
                     } else if (event instanceof WatchpointEvent) {
                         ;
                     } else if (event instanceof StepEvent) {
                         StepEvent se = (StepEvent) event;
-                        System.out.println("step "
-                                           + (new thread(se.thread())).toString()
-                                           + " "
-                                           + (new location(se.location())).toString());
+                        System.out.println("step\n" + (new location(se.location())).toString());
                         se.request().disable();
                     } else if (event instanceof MethodEntryEvent) {
                         ;

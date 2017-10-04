@@ -4,15 +4,17 @@ import java.util.Scanner;
 
 class parser implements Iterator
 {
-    public enum TOKEN {ALL, ATTACH, CONTINUE, DONE, FRAME, NEXT, NUMBER, QUIT, RUN, STRING, THREAD};
+    public enum TOKEN {ALL, ATTACH, BACK, CONTINUE, DONE, FRAME, INTO, NEXT, NUMBER, QUIT, RUN, STRING, THREAD};
 
     static HashMap<String, TOKEN> keywords = new HashMap<String, TOKEN>();
 
     static {
         keywords.put("all",      TOKEN.ALL);
         keywords.put("attach",   TOKEN.ATTACH);
+        keywords.put("back",     TOKEN.BACK);
         keywords.put("continue", TOKEN.CONTINUE);
         keywords.put("frame",    TOKEN.FRAME);
+        keywords.put("into",     TOKEN.INTO);
         keywords.put("next",     TOKEN.NEXT);
         keywords.put("quit",     TOKEN.QUIT);
         keywords.put("run",      TOKEN.RUN);

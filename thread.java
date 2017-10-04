@@ -17,62 +17,58 @@ class thread
     
     public String frame(int frameNumber)
     {
-        StackFrame                             frame             = null;
-        Location                                   loc                  = null;
-        List<LocalVariable>               vars               = null;
-        Map<LocalVariable, Value> values           = null;
-        int                                              framecount  = 0;
-        StringBuilder                           sb                   = new StringBuilder("frame "
-                                                                                         + frameNumber);
+        StackFrame                frame  = null;
+        Location                  loc    = null;
+        List<LocalVariable>       vars   = null;
+        Map<LocalVariable, Value> values = null;
+        StringBuilder             sb     = new StringBuilder("frame,"
+                                                             + frameNumber);
 
         if (!tr.isSuspended())
 
-                return(sb.toString() + " error  \"thread not suspended\"");            
+            return("error,thread " + tr.uniqueID() + " not suspended\n");
 
         try {
-            framecount = tr.frameCount();
-        } catch (IncompatibleThreadStateException e)  {
-            return(sb.toString() + " error  \"thread not suspended\"");
-        }
-      
-        sb.append("/" + framecount +  " ");
+            int framecount = tr.frameCount();
 
-        if (frameNumber < 0 || frameNumber >= framecount)
+            if (frameNumber < 0 || frameNumber >= framecount)
 
-                return(sb.toString() + " error  \"no such frame\"");            
+                return("error,no frame number " + frameNumber + " in thread " + tr.uniqueID() + "\n");
 
-        try {
+            sb.append("," + framecount +  "\n");
+
             frame = tr.frame(frameNumber);
-            loc      = frame.location();
-        } catch (InvalidStackFrameException e)  {
-            return(sb.toString() + " error  \"invalid frame state\"");
-        } catch (IncompatibleThreadStateException e) {
-            return(sb.toString() + " error  \"invalid thread state\"");
-        } catch (IndexOutOfBoundsException e) {
-            return(sb.toString() + " error  \"no such frame\"");
-        }
 
-        if (frame == null)
+            if (frame == null)
         
-            return(sb.toString() + " error  \"no such frame\"");
-      
-        sb.append((loc != null) ? (new location(loc)).toString() : " location ");
+                return("error,no frame number " + frameNumber + " in thread " + tr.uniqueID() + "\n");
 
-        try {
-            vars     = frame.visibleVariables();
+            loc = frame.location();
+
+            if (loc != null)
+
+                sb.append((new location(loc)).toString());
+
+            vars   = frame.visibleVariables();
             values = frame.getValues(vars);
         } catch (InvalidStackFrameException e)  {
-            return(sb.toString() + " error  \"invalid frame state\"");
+            return("error thread " + tr.uniqueID() + " not suspended\n");
+        } catch (IncompatibleThreadStateException e) {
+            return("error thread " + tr.uniqueID() + " not suspended\n");
+        } catch (IndexOutOfBoundsException e) {
+            return("error no frame number " + frameNumber + " in thread " + tr.uniqueID() + "\n");
         } catch (AbsentInformationException e) {
-            return(sb.toString() + " error  \"values missing\"");
+            sb.append("error values missing in frame " + frameNumber + " in thread  " + tr.uniqueID() + "\n");
+            return(sb.toString());
         } catch (NativeMethodException e) {
-            return(sb.toString() + " error  \"native method\"");
+            sb.append("error native method in frame " + frameNumber + " in thread  " + tr.uniqueID() + "\n");
+            return(sb.toString());
         }
         
         // arguments
 
-        StringBuilder ab = new StringBuilder(" arguments ");
-        StringBuilder lb  = new StringBuilder(" locals ");
+        StringBuilder ab = new StringBuilder("arguments");
+        StringBuilder lb = new StringBuilder("locals");
 
         if (vars != null)
 
@@ -80,19 +76,18 @@ class thread
                 for (LocalVariable var : vars)
 
                     {
-                        String  s = var.name() + " ";
+                        String  s =  "," + var.name() + ",";
 
                         if  (values != null)
 
                             {
                                 Value  val = values.get(var);
-                                s = s + " " 
-                                    + ((val == null) ? " null" : val.toString());
+                                s = s + ((val == null) ? " null" : val.toString());
                             }
 
                         else
 
-                            s = s + " null";
+                            s = s + "null";
 
                         if (var.isArgument())
 
@@ -104,17 +99,16 @@ class thread
                     }
             }
         
-        return(sb.toString()
-               + " " + ab.toString()
-               + " " + lb.toString());
+        return(ab.toString() + "\n" + lb.toString() + "\n");
     }
 
     public String toString()
     {
-        StringBuilder b = new StringBuilder("thread "
+        StringBuilder b = new StringBuilder("thread,"
                                             + tr.uniqueID()
-                                            + " \'"
-                                            + tr.name());
+                                            + ","
+                                            + tr.name()
+                                            + ",");
 
         switch(tr.status())
 
@@ -149,7 +143,7 @@ class thread
                 break;
             }
 
-        b.append(" ");
+        b.append(",");
         
         try {
             b.append(tr.frameCount());
@@ -158,11 +152,11 @@ class thread
                 b.append("noframecount");
             }
         
-        b.append(" ");
-        b.append(tr.isAtBreakpoint());
-        b.append(" ");
-        b.append(tr.isSuspended());
-        
-        return b.toString();
+        return b.toString()
+            + ","
+            + tr.isAtBreakpoint()
+            + ","
+            + tr.isSuspended()
+            + "\n";
     }
 }

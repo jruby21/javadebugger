@@ -12,19 +12,20 @@ class location
     public String toString()
     {
         try {
-            String filename   = loc.sourceName();
-            String refName   = loc.declaringType().name();
-            int       iDot            = refName.lastIndexOf('.');
-            String pkgName = (iDot >= 0)? refName.substring(0, iDot+1) : "";
+            String filename = loc.sourceName();
+            String refName  = loc.declaringType().name();
+            int    iDot     = refName.lastIndexOf('.');
+            String pkgName  = (iDot >= 0)? refName.substring(0, iDot+1) : "";
 
-            return "location "
+            return "location,"
                 + pkgName.replace('.', File.separatorChar) + filename
-                + " "
+                + ","
                 + loc.lineNumber()
-                + " "
-                + loc.method().name();
+                + ","
+                + loc.method().name()
+                + "\n";
         } catch (AbsentInformationException e) {
-            return "location error  \"location not available\"";
+            return "error,location not available\n";
         }
     }
 }

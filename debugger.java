@@ -102,7 +102,41 @@ public class debugger
                         else
 
                             {
-                                System.out.println("error - step thread-id");
+                                System.out.println("error - next thread-id");
+                                parse.clear();
+                            }
+
+                        break;
+
+                    case INTO:
+
+                        if (parse.next() == parser.TOKEN.STRING)
+
+                            step(parse.getString(),
+                                 StepRequest.STEP_LINE,
+                                 StepRequest.STEP_INTO);
+                                    
+                        else
+
+                            {
+                                System.out.println("error - next thread-id");
+                                parse.clear();
+                            }
+
+                        break;
+                        
+                    case BACK:
+
+                        if (parse.next() == parser.TOKEN.STRING)
+
+                            step(parse.getString(),
+                                 StepRequest.STEP_LINE,
+                                 StepRequest.STEP_OUT);
+                                    
+                        else
+
+                            {
+                                System.out.println("error - next thread-id");
                                 parse.clear();
                             }
 
@@ -138,11 +172,13 @@ public class debugger
                         if (tok0 == parser.TOKEN.ALL)
 
                             {
-                                System.out.print("threads ");
-        
+                                System.out.print("thread");
+
                                 for (ThreadReference thr: vm.allThreads())
 
-                                    System.out.print((new thread(thr)).toString() + " ");
+                                    System.out.print("," + (new thread(thr)).toString());
+
+                                System.out.print("\n");
                             }
 
                         else if (tok0 == parser.TOKEN.STRING)
@@ -152,7 +188,7 @@ public class debugger
 
                                 if (tr != null)
 
-                                    System.out.println(tr.toString());
+                                    System.out.println("thread," + tr.toString());
                             }
 
                         else
