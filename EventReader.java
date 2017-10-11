@@ -46,12 +46,14 @@ class EventReader extends Thread
                         BreakpointEvent bp = (BreakpointEvent) event;
                         System.out.println("breakpoint\n"
                                            + (new thread(bp.thread())).toString()
-                                           + (new location(bp.location())).toString());
+                                           + (new location(bp.location())).toString()
+                                           + "endbreakpoint\n");
                     } else if (event instanceof WatchpointEvent) {
                         ;
                     } else if (event instanceof StepEvent) {
                         StepEvent se = (StepEvent) event;
-                        System.out.println("step\n" + (new location(se.location())).toString());
+                        System.out.println("step\n"
+                                           + (new location(se.location())).toString());
                         se.request().disable();
                     } else if (event instanceof MethodEntryEvent) {
                         ;
@@ -84,10 +86,12 @@ class EventReader extends Thread
                         Field           msgField = re.referenceType().fieldByName("detailMessage"); 
                         StringReference msgVal   = (StringReference) re.getValue(msgField); 
 
-                        System.out.println("exception "
+                        System.out.println("exception,"
                                            + e.exception().type().name()
-                                           + " "
-                                           + (msgVal == null ? "null" : msgVal.value()));
+                                           + ","
+                                           + (new location(e.catchLocation())).toString()
+                                           + ","
+                                           + (msgVal == null ? "" : msgVal.value()));
                     } else if (event instanceof ThreadStartEvent) {
                         System.out.println("thread started " 
                                            + (new thread(((ThreadStartEvent) event).thread())).toString());
@@ -95,8 +99,7 @@ class EventReader extends Thread
                         System.out.println("thread died " 
                                            + (new thread(((ThreadStartEvent) event).thread())).toString());
                     } else if (event instanceof VMStartEvent) {
-                        System.out.println("vm started " 
-                                           + (new thread(((VMStartEvent) event).thread())).toString());
+                        System.out.println("vm started");
                     } else {
                         ;
                     }

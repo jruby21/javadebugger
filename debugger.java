@@ -147,7 +147,11 @@ public class debugger
                         
                     case RUN:
 
-                        if (parse.next() == parser.TOKEN.STRING)
+                        if (vm == null)
+
+                            System.out.println("error,no virtual machine");
+
+                        else if (parse.next() == parser.TOKEN.STRING)
 
                             {
                                 ClassPrepareRequest r = vm.eventRequestManager().createClassPrepareRequest();
@@ -159,7 +163,7 @@ public class debugger
                         else
 
                             {
-                                System.out.println("error - run main-class");
+                                System.out.println("error,run main-class");
                                 parse.clear();
                             }
 
@@ -172,13 +176,11 @@ public class debugger
                         if (tok0 == parser.TOKEN.ALL)
 
                             {
-                                System.out.print("thread");
-
                                 for (ThreadReference thr: vm.allThreads())
 
-                                    System.out.print("," + (new thread(thr)).toString());
+                                    System.out.print((new thread(thr)).toString());
 
-                                System.out.print("\n");
+                                System.out.print("endthread\n");
                             }
 
                         else if (tok0 == parser.TOKEN.STRING)
@@ -188,7 +190,7 @@ public class debugger
 
                                 if (tr != null)
 
-                                    System.out.println("thread," + tr.toString());
+                                    System.out.println(tr.toString() + "endthread\n");
                             }
 
                         else
