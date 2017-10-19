@@ -46,12 +46,12 @@ public class debugger
             expr(new parser(s));
     }
 
-    private String hostname = null;
-    private String port     = null;
-    private String threadid = null;
-    private String frameid  = null;
-    private thread tr       = null;
-    
+    private String              hostname   = null;
+    private String              port       = null;
+    private String              threadid   = null;
+    private String              frameid    = null;
+    private thread              tr         = null;
+
     void expr(parser parse)
     {
         parser.TOKEN tok0;
@@ -73,17 +73,16 @@ public class debugger
                         tok1     = parse.next();
                         port     = parse.getString();
 
-                        if (tok0 == parser.TOKEN.STRING
-                            && tok1 == parser.TOKEN.STRING)
+                        if (tok0 != parser.TOKEN.STRING
+                            || hostname == null || hostname.length() == 0
+                            || tok1 != parser.TOKEN.STRING
+                            || port == null || port.length() == 0)
 
-                            attach(hostname, port);
-
+                            System.out.println("error,attach hostname port");
+                            
                         else
 
-                            {
-                                System.out.println("error - attach hostname port");
-                                parse.clear();
-                            }
+                            attach(hostname, port);
                         
                         break;
 
@@ -101,10 +100,7 @@ public class debugger
                                     
                         else
 
-                            {
-                                System.out.println("error - next thread-id");
-                                parse.clear();
-                            }
+                            System.out.println("error,missing thread-id");
 
                         break;
 
@@ -118,10 +114,7 @@ public class debugger
                                     
                         else
 
-                            {
-                                System.out.println("error - next thread-id");
-                                parse.clear();
-                            }
+                            System.out.println("error,missing thread-id");
 
                         break;
                         
@@ -135,10 +128,72 @@ public class debugger
                                     
                         else
 
+                            System.out.println("error,missing thread-id");
+
+                        break;
+
+
+                    case BREAK:
+
+                        try
+                            
                             {
-                                System.out.println("error - next thread-id");
-                                parse.clear();
-                            }
+                                parser.TOKEN tk0 = parse.next();
+                                String       cl  = parse.getString();
+                                parser.TOKEN tk1 = parse.next();
+                                String       ln  = parse.getString();
+                        
+                                if (tk0 != parser.TOKEN.STRING
+                                    || tk1 != parser.TOKEN.STRING
+                                    || cl == null || cl.length() == 0
+                                    || ln == null || ln.length() == 0)
+
+                                    {
+                                        System.out.println("error,break class-name line-number");
+                                        break;
+                                    }
+                        
+                                List<ReferenceType> classes = vm.classesByName(cl);
+
+                                if (classes == null || classes.isEmpty())
+
+                                    {
+                                        System.out.println("error,no such class");
+                                        break;
+                                    }
+                                
+                                List<Location> locs = classes.get(0).locationsOfLine(Integer.parseInt(ln));
+
+                                if (locs == null || locs.isEmpty())
+
+                                    {
+                                        System.out.println("error,no such line");
+                                        break;
+                                    }
+
+                                Location                bl  = locs.get(0);
+                                BreakpointRequest       br  = null;
+                                List<BreakpointRequest> brs = vm.eventRequestManager().breakpointRequests();
+
+                                for (BreakpointRequest b : brs)
+
+                                    {
+                                        if (bl.equals(b.location()))
+
+                                            br = b;
+                                    }
+
+                                if (br == null)
+                                    
+                                    br = vm.eventRequestManager().createBreakpointRequest(bl);
+
+                                br.enable();
+
+                            } catch (NumberFormatException e) {
+                            System.out.println("error,line nunmber must be an integer.");
+                        } catch (AbsentInformationException a) {
+                            System.out.println("error,no such line number.");
+                        }
 
                         break;
                         
@@ -151,7 +206,11 @@ public class debugger
 
                             System.out.println("error,no virtual machine");
 
-                        else if (parse.next() == parser.TOKEN.STRING)
+                        else if (parse.next() != parser.TOKEN.STRING)
+
+                            System.out.println("error,run main-class");
+
+                        else
 
                             {
                                 ClassPrepareRequest r = vm.eventRequestManager().createClassPrepareRequest();
@@ -160,15 +219,9 @@ public class debugger
                                 vm.resume();
                             }
 
-                        else
-
-                            {
-                                System.out.println("error,run main-class");
-                                parse.clear();
-                            }
-
                         break;
 
+                        
                     case THREAD:
 
                         tok0 = parse.next();
@@ -195,10 +248,7 @@ public class debugger
 
                         else
 
-                            {
-                                System.out.println("error - thread (all | thread-id");
-                                parse.clear();
-                            }
+                            System.out.println("error - thread (all | thread-id");
 
                         break;
 
@@ -213,17 +263,11 @@ public class debugger
                         if (tok0 != parser.TOKEN.STRING
                             ||  tok1 != parser.TOKEN.STRING)
                             
-                            {
-                                System.out.println("error - frame thread-id frame-id");
-                                parse.clear();
-                            }
+                            System.out.println("error,frame thread-id frame-id");
 
                         else if (tr == null)
                             
-                            {
-                                System.out.println("error - no such thread");
-                                parse.clear();
-                            }
+                            System.out.println("error,no such thread");
 
                         else
 
@@ -231,12 +275,15 @@ public class debugger
                                 try {
                                     System.out.println(tr.frame(Integer.parseInt(frameid)));
                                 } catch (NumberFormatException e) {
-                                    System.out.println("error - frame id must be an integer");
-                                    parse.clear();
+                                    System.out.println("error,frame id must be an integer");
                                 }
                             }
 
-                        break;                        
+                        break;
+
+                    default:
+                        System.out.println("error,unknown command");
+                        break;
                     }
             }
     }

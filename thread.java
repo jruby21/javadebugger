@@ -67,8 +67,8 @@ class thread
         
         // arguments
 
-        StringBuilder ab = new StringBuilder("arguments");
-        StringBuilder lb = new StringBuilder("locals");
+        StringBuilder ab = new StringBuilder("argument");
+        StringBuilder lb = new StringBuilder("local");
 
         if (vars != null)
 

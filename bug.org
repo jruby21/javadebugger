@@ -99,6 +99,26 @@
              (insert (concat "breakpoint ")))
            (push "breakpoint" stateStack))
           ((string= act "step"))
+          ((string= act "local")
+           (with-current-buffer jdbuggerBuffer
+             (insert "|Local|Value|\n|----")
+             (while args
+               (insert (concat "|\n| " (nth 0 args) " | "  (nth 1 args)))
+               (setq args (cdr (cdr args))))
+             (beginning-of-line)
+             (org-ctrl-c-ctrl-c)
+             (end-of-line)
+             (insert "\n")))
+          ((string= act "argument")
+           (with-current-buffer jdbuggerBuffer
+             (insert "|Argumentsl|Value|\n|----")
+             (while args
+               (insert (concat "|\n| " (nth 0 args) " | "  (nth 1 args)))
+               (setq args (cdr (cdr args))))
+             (beginning-of-line)
+             (org-ctrl-c-ctrl-c)
+             (end-of-line)
+             (insert "\n")))
           ((string= act "location")
            (location args))
           ((string= act "thread")
@@ -118,7 +138,7 @@
            (with-current-buffer jdbuggerBuffer
              (insert "\n"))
            (pop stateStack))))
-
+                
   (defun threadState (act args)
     (cond ((string= act "thread")
            (with-current-buffer jdbuggerBuffer
@@ -194,3 +214,90 @@ breakpoint in thread 1 foo.java:5
 *** next 1
 step
 foo.java:6
+** Starting debugger session
+*** attach localhost 8000
+*** run foo
+*** continue
+breakpoint in thread 1 foo.java:5
+
+*** next
+*** thread 1
+| ID | Name | State   | Frames | Breakpoint | Suspended |
+|----+------+---------+--------+------------+-----------|
+|  1 | main | running |      1 | true       | true      |
+
+*** next 1
+foo.java:6
+*** next 1
+foo.java:7
+*** next 1
+foo.java:9
+*** next 1
+foo.java:10
+*** next 1
+foo.java:12
+*** thread 1
+| ID | Name | State   | Frames | Breakpoint | Suspended |
+|----+------+---------+--------+------------+-----------|
+|  1 | main | running |      1 | false      | true      |
+
+*** frame 1
+*** frame 1 0
+foo.java:12
+*** quit
+** Starting debugger session
+*** attach localhost 8000
+*** run foo
+*** continue
+breakpoint in thread 1 foo.java:5
+
+*** next 1
+foo.java:6
+*** next 1
+foo.java:7
+*** next 1
+foo.java:9
+*** next 1
+foo.java:10
+*** next 1
+foo.java:12
+*** frame 1 0
+| Name | Value |
+|------+-------|
+| i    |    34 |
+| j    |     0 |
+| k    |     4 |
+
+*** quit
+
+** Starting debugger session
+*** attach localhost 8000
+*** run foo
+*** continue
+breakpoint in thread 1 foo.java:5
+
+*** break foo 12
+*** continue
+breakpoint in thread 1 foo.java:12
+
+*** locals 1
+*** Error unknown command
+*** Error unknown command
+*** local 1
+*** Error unknown command
+*** Error unknown command
+*** thread 1
+| ID | Name | State   | Frames | Breakpoint | Suspended |
+|----+------+---------+--------+------------+-----------|
+|  1 | main | running |      1 | true       | true      |
+
+*** frame 1 0
+| Argumentsl |                                   Value |
+|------------+-----------------------------------------|
+| args       | instance of java.lang.String[1] (id=69) |
+| Local      |                                   Value |
+|------------+-----------------------------------------|
+| i          |                                      34 |
+| j          |                                       0 |
+| k          |                                       4 |
+
