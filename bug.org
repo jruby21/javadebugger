@@ -51,7 +51,11 @@
         "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
         "debugger")))
     (let ((default-directory src))
-      (setq stateStack (list "start"))
+      (setq expected
+            (list
+             (list "vmstart" "connected to java program" (list "prepare foo" "run"))
+             (list "classloaded" "main class loaded" (list "break foo main" "continue"))))
+      (setq stateStack (list "start" "basic"))
       (setq jdbuggerBuffer (current-buffer))
       (setq jdbuggerString "")
       (set-process-filter proc 'javadebug-insertion-filter)
@@ -88,10 +92,7 @@
                    (jdbAction in)))))))
 
   (defun basicState (act args)
-    (cond ((string= act "error")
-           (with-current-buffer jdbuggerBuffer
-             (insert (concat "*** Error " (car args) "\n"))))
-          ((string= act "breakpoint")
+    (cond ((string= act "breakpoint")
            (with-current-buffer jdbuggerBuffer
              (insert (concat "breakpoint ")))
            (push "breakpoint" stateStack))
@@ -149,15 +150,34 @@
              (insert "\n"))
              (pop stateStack))))
 
+  (defun startState (act args)
+    (let ((ps (car expected)))
+(message "%s %s"  act  (car ps))
+      (if (string= act (car ps))
+          (let ((ms (nth 1 ps))
+                (cm (nth 2 ps)))
+            (setq expected (cdr expected))
+            (if (null expected)
+                (pop stateStack))
+            (with-current-buffer jdbuggerBuffer
+              (insert (concat ms "\n"))
+              (dolist (c cm)
+                (sendDebuggerCommand c)))))))
+              
   (defun jdbAction (in)
     (let* ((com   (split-string in "," t))
            (state (car stateStack))
            (act   (car com))
            (args  (cdr com)))
-      (cond ((string= state "basic")
+      (cond ((string= act "error")
+             (with-current-buffer jdbuggerBuffer
+               (insert (concat "*** Error " (car args) "\n"))))
+            ((string= state "basic")
              (basicState act args))
             ((string= state "breakpoint")
              (breakpointState act args))
+            ((string= state "start")
+             (startState act args))
             ((string= state "thread")
              (threadState act args)))))
 
@@ -188,6 +208,9 @@
               (select-window (get-buffer-window jdbuggerBuffer)))))))
 #+END_SRC
 
+#+RESULTS:
+: location
+
 ** Starting debugger session
 *** attach localhost 8000
 
@@ -196,3 +219,34 @@
 *** break foo main
 *** continue
 *** continue
+** Starting debugger session
+*** attach localhost 8000
+
+*** Error unknown command
+*** prepare foo
+*** run
+*** break foo main
+*** continue
+*** quit
+** Starting debugger session
+*** attach localhost 8000
+
+*** quit
+** Starting debugger session
+*** attach localhost 8000
+
+*** Error unknown command
+*** quit
+** Starting debugger session
+*** attach localhost 8000
+
+*** Error unknown command
+connected to java program/n
+*** prepare foo
+*** run
+main class loaded/n
+*** break foo main
+*** continue
+breakpoint in thread 1 foo.java:5
+
+*** quit
