@@ -149,7 +149,7 @@ public class debugger
                                     || ln == null || ln.length() == 0)
 
                                     {
-                                        System.out.println("error,break class-name line-number");
+                                        System.out.println("error,break class-name <line-number|method name>");
                                         break;
                                     }
                         
@@ -161,8 +161,29 @@ public class debugger
                                         System.out.println("error,no such class");
                                         break;
                                     }
+
+                                // line number or method name
+
+                                List<Location> locs = null;
                                 
-                                List<Location> locs = classes.get(0).locationsOfLine(Integer.parseInt(ln));
+                                if (ln.matches("^\\d+$"))
+
+                                    locs = classes.get(0).locationsOfLine(Integer.parseInt(ln));
+
+                                else
+
+                                    {
+                                        List<Method> m = classes.get(0).methodsByName(ln);
+
+                                        if (m == null || m.isEmpty())
+
+                                            {
+                                                System.out.println("error,no such method");
+                                                break;
+                                            }
+
+                                        locs = m.get(0).allLineLocations();
+                                    }
 
                                 if (locs == null || locs.isEmpty())
 
@@ -171,8 +192,8 @@ public class debugger
                                         break;
                                     }
 
-                                Location                bl  = locs.get(0);
-                                BreakpointRequest       br  = null;
+                                Location                       bl  = locs.get(0);
+                                BreakpointRequest         br  = null;
                                 List<BreakpointRequest> brs = vm.eventRequestManager().breakpointRequests();
 
                                 for (BreakpointRequest b : brs)
@@ -199,16 +220,17 @@ public class debugger
                         
                     case QUIT:
                         System.exit(0);
-                        
-                    case RUN:
 
+
+                    case PREPARE:
+                        
                         if (vm == null)
 
                             System.out.println("error,no virtual machine");
 
                         else if (parse.next() != parser.TOKEN.STRING)
 
-                            System.out.println("error,run main-class");
+                            System.out.println("error,prepare main-class");
 
                         else
 
@@ -216,8 +238,20 @@ public class debugger
                                 ClassPrepareRequest r = vm.eventRequestManager().createClassPrepareRequest();
                                 r.addClassFilter(parse.getString());
                                 r.enable();
-                                vm.resume();
                             }
+
+                        break;
+                        
+
+                    case RUN:
+
+                        if (vm == null)
+
+                            System.out.println("error,no virtual machine");
+
+                        else
+
+                            vm.resume();
 
                         break;
 

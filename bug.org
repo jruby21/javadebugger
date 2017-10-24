@@ -14,81 +14,78 @@
 
 
 #+BEGIN_SRC emacs-lisp :tangle yes
-     (require 'ht)
+       (require 'ht)
 
-     (defun sendDebuggerCommand ()
-       (interactive)
-       (beginning-of-line)
-       (let ((p (point))
-             (b))
-         (end-of-line)
-         (process-send-string
-          proc
-          (concat  (setq b (buffer-substring-no-properties p (point))) "\n"))) ;
-       (insert "\n"))
+       (defun sendDebuggerCommand ()
+         (interactive)
+         (beginning-of-line)
+         (let ((p (point))
+               (b))
+           (end-of-line)
+           (process-send-string
+            proc
+            (concat  (setq b (buffer-substring-no-properties p (point))) "\n"))) ;
+         (insert "\n"))
 
-     (defvar javadebug-mode-map
-       (let ((map (make-sparse-keymap)))
-         (define-key map "\C-j" 'sendDebuggerCommand)
-         map))
+       (defvar javadebug-mode-map
+         (let ((map (make-sparse-keymap)))
+           (define-key map "\C-j" 'sendDebuggerCommand)
+           map))
 
-     (define-derived-mode javadebug-mode
-       org-mode "JavaDebug"
-       "Major mode java debugger.")
+       (define-derived-mode javadebug-mode
+         org-mode "JavaDebug"
+         "Major mode java debugger.")
 
-     (javadebug-mode)
+       (javadebug-mode)
 
-     (defun startProc ()
-       (interactive)
-       (let ((default-directory "/home/jruby/tmp/jdb/"))
-         (setq 
-          proc 
-          (start-process 
-           "my-process" 
-           "*jdbugger*"
-           "/home/jruby/tools/jdk1.8.0_131/bin/java" 
-           "-cp" 
-           "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
-           "debugger"))
-         (setq stateStack     (list "basic"))
-         (setq jdbuggerBuffer (current-buffer))
-         (setq jdbuggerString "")
-         (set-process-filter proc 'javadebug-insertion-filter)
-         (goto-char (point-max))
-         (insert "** Starting debugger session\n")
-         (insert "*** attach localhost 8000\n")
-         (process-send-string
-          proc
-          "attach localhost 8000\n"))
-       (delete-other-windows)
-       (setq sourceWindow (split-window-below))
-       (set-window-buffer sourceWindow (process-buffer proc)))
+  (defun startProc (px src mn)
+    (interactive "Dproxy directory: \nDsource root:: \nMmain class ")
+    (let ((default-directory px))
+      (setq 
+       proc 
+       (start-process 
+        "my-process" 
+        "*jdbugger*"
+        "/home/jruby/tools/jdk1.8.0_131/bin/java" 
+        "-cp" 
+        "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
+        "debugger")))
+    (let ((default-directory src))
+      (setq stateStack (list "start"))
+      (setq jdbuggerBuffer (current-buffer))
+      (setq jdbuggerString "")
+      (set-process-filter proc 'javadebug-insertion-filter)
+      (goto-char (point-max))
+      (insert "** Starting debugger session\n")
+      (sendDebuggerCommand "attach localhost 8000\n")
+      (delete-other-windows)
+      (setq sourceWindow (split-window-below))
+      (set-window-buffer sourceWindow (process-buffer proc))))
 
+  (defun sendDebuggerCommand (command)
+    (interactive "Mdebugger command: ")
+    (process-send-string
+     proc
+     (concat  command "\n"));
+    (goto-char (point-max))
+    (insert (concat "*** " command "\n")))
 
-     (defun sendDebuggerCommand (command)
-       (interactive "Mdebugger command: ")
-       (process-send-string
-        proc
-        (concat  command "\n"));
-       (goto-char (point-max))
-       (insert (concat "*** " command "\n")))
-
-    (defun javadebug-insertion-filter (proc string)
-       (when (buffer-live-p (process-buffer proc))
-         (with-current-buffer (process-buffer proc)
-           (save-excursion
-             ;; Insert the text, advancing the process marker.
-             (goto-char (process-mark proc))
-             (insert string)
-             (set-marker (process-mark proc) (point))
-             (setq jdbuggerString (concat jdbuggerString string))
-             (let ((commands (split-string jdbuggerString "\n" t)))
-               (if (string-match-p "\n[ \t]*$" string)
-                   (setq jdbuggerString "")
-                 (setq jdbuggerString (nth (1- (length commands)) commands))
-                 (setq commands (butlast commands)))
-               (dolist (in commands)
-                 (jdbAction in)))))))
+  (defun javadebug-insertion-filter (proc string)
+    (when (buffer-live-p (process-buffer proc))
+      (with-current-buffer (process-buffer proc)
+        (save-excursion
+          ;; Insert the text, advancing the process marker.
+          (goto-char (process-mark proc))
+          (insert string)
+          (set-marker (process-mark proc) (point))
+          (setq jdbuggerString (concat jdbuggerString string))
+          (let ((commands (split-string jdbuggerString "\n" t)))
+                 (if (string-match-p "\n[ \t]*$" string)
+                     (setq jdbuggerString "")
+                   (setq jdbuggerString (nth (1- (length commands)) commands))
+                   (setq commands (butlast commands)))
+                 (dolist (in commands)
+                   (jdbAction in)))))))
 
   (defun basicState (act args)
     (cond ((string= act "error")
@@ -114,7 +111,7 @@
              (insert "|Argumentsl|Value|\n|----")
              (while args
                (insert (concat "|\n| " (nth 0 args) " | "  (nth 1 args)))
-               (setq args (cdr (cdr args))))
+                 (setq args (cdr (cdr args))))
              (beginning-of-line)
              (org-ctrl-c-ctrl-c)
              (end-of-line)
@@ -124,8 +121,8 @@
           ((string= act "thread")
            (with-current-buffer jdbuggerBuffer
              (insert "|ID|Name|State|Frames|Breakpoint|Suspended|\n")
-             (insert "|----|\n")
-             (dolist (th args) (insert (concat " | " th))))
+               (insert "|----|\n")
+               (dolist (th args) (insert (concat " | " th))))
            (push "thread" stateStack))))
 
   (defun breakpointState (act args)
@@ -138,7 +135,7 @@
            (with-current-buffer jdbuggerBuffer
              (insert "\n"))
            (pop stateStack))))
-                
+
   (defun threadState (act args)
     (cond ((string= act "thread")
            (with-current-buffer jdbuggerBuffer
@@ -150,154 +147,52 @@
              (org-ctrl-c-ctrl-c)
              (end-of-line)
              (insert "\n"))
-           (pop stateStack))))
+             (pop stateStack))))
 
-    (defun jdbAction (in)
-      (let* ((com   (split-string in "," t))
-             (state (car stateStack))
-             (act   (car com))
-             (args  (cdr com)))
-        (cond ((string= state "basic")
-               (basicState act args))
-              ((string= state "breakpoint")
-               (breakpointState act args))
-              ((string= state "thread")
-                (threadState act args)))))
+  (defun jdbAction (in)
+    (let* ((com   (split-string in "," t))
+           (state (car stateStack))
+           (act   (car com))
+           (args  (cdr com)))
+      (cond ((string= state "basic")
+             (basicState act args))
+            ((string= state "breakpoint")
+             (breakpointState act args))
+            ((string= state "thread")
+             (threadState act args)))))
 
-      (defun location (args)
-      (let* ((file (nth 0 args))
-             (line (nth 1 args))
-             (bug (find-file-noselect file))
-             (same nil)
-             (dif nil))
-        (with-current-buffer jdbuggerBuffer
-          (insert (concat file ":" line "\n"))
-          (dolist (win (window-list))
-            (if (eq (window-buffer win) bug)
-                (setq same win))
-            (if (not (eq (window-buffer win) jdbuggerBuffer))
-                (setq dif win))
-            (if same
-                (select-window same)
-              (if dif
-                  (progn
-                    (set-window-buffer dif bug)
-                    (select-window dif))))
-            (if (eq (window-buffer (selected-window)) bug)
+  (defun location (args)
+    (let* ((file (nth 0 args))
+           (line (nth 1 args))
+           (bug (find-file-noselect file))
+           (same nil)
+           (dif nil))
+      (with-current-buffer jdbuggerBuffer
+        (insert (concat file ":" line "\n"))
+        (dolist (win (window-list))
+          (if (eq (window-buffer win) bug)
+              (setq same win))
+          (if (not (eq (window-buffer win) jdbuggerBuffer))
+              (setq dif win))
+          (if same
+              (select-window same)
+            (if dif
                 (progn
-                  (goto-char (point-min))
-                  (forward-line (1- (string-to-number line)))))
-            (if (get-buffer-window jdbuggerBuffer)
-                (select-window (get-buffer-window jdbuggerBuffer)))))))
+                  (set-window-buffer dif bug)
+                  (select-window dif))))
+          (if (eq (window-buffer (selected-window)) bug)
+              (progn
+                (goto-char (point-min))
+                (forward-line (1- (string-to-number line)))))
+          (if (get-buffer-window jdbuggerBuffer)
+              (select-window (get-buffer-window jdbuggerBuffer)))))))
 #+END_SRC
 
-#+RESULTS:
-: location
-
 ** Starting debugger session
 *** attach localhost 8000
-       (print (list win (window-buffer win) bug jdbuggerBuffer
-  (eq (window-buffer win) bug)  (not (eq (window-buffer win) jdbuggerBuffer)) same dif win))))
-*** run foo
+
+*** prepare foo
+*** run
+*** break foo main
 *** continue
-breakpoint in thread 1 foo.java:5
-
-*** next
-*** thread all
-| ID | Name              | State   | Frames | Breakpoint | Suspended |
-|----+-------------------+---------+--------+------------+-----------|
-| 66 | Signal Dispatcher | running |      0 | false      | true      |
-| 67 | Finalizer         | waiting |      4 | false      | true      |
-| 68 | Reference Handler | waiting |      4 | false      | true      |
-|  1 | main              | running |      1 | true       | true      |
-
-*** next 1
-step
-foo.java:6
-** Starting debugger session
-*** attach localhost 8000
-*** run foo
 *** continue
-breakpoint in thread 1 foo.java:5
-
-*** next
-*** thread 1
-| ID | Name | State   | Frames | Breakpoint | Suspended |
-|----+------+---------+--------+------------+-----------|
-|  1 | main | running |      1 | true       | true      |
-
-*** next 1
-foo.java:6
-*** next 1
-foo.java:7
-*** next 1
-foo.java:9
-*** next 1
-foo.java:10
-*** next 1
-foo.java:12
-*** thread 1
-| ID | Name | State   | Frames | Breakpoint | Suspended |
-|----+------+---------+--------+------------+-----------|
-|  1 | main | running |      1 | false      | true      |
-
-*** frame 1
-*** frame 1 0
-foo.java:12
-*** quit
-** Starting debugger session
-*** attach localhost 8000
-*** run foo
-*** continue
-breakpoint in thread 1 foo.java:5
-
-*** next 1
-foo.java:6
-*** next 1
-foo.java:7
-*** next 1
-foo.java:9
-*** next 1
-foo.java:10
-*** next 1
-foo.java:12
-*** frame 1 0
-| Name | Value |
-|------+-------|
-| i    |    34 |
-| j    |     0 |
-| k    |     4 |
-
-*** quit
-
-** Starting debugger session
-*** attach localhost 8000
-*** run foo
-*** continue
-breakpoint in thread 1 foo.java:5
-
-*** break foo 12
-*** continue
-breakpoint in thread 1 foo.java:12
-
-*** locals 1
-*** Error unknown command
-*** Error unknown command
-*** local 1
-*** Error unknown command
-*** Error unknown command
-*** thread 1
-| ID | Name | State   | Frames | Breakpoint | Suspended |
-|----+------+---------+--------+------------+-----------|
-|  1 | main | running |      1 | true       | true      |
-
-*** frame 1 0
-| Argumentsl |                                   Value |
-|------------+-----------------------------------------|
-| args       | instance of java.lang.String[1] (id=69) |
-| Local      |                                   Value |
-|------------+-----------------------------------------|
-| i          |                                      34 |
-| j          |                                       0 |
-| k          |                                       4 |
-

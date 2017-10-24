@@ -4,22 +4,23 @@ import java.util.Scanner;
 
 class parser implements Iterator
 {
-    public enum TOKEN {ALL, ATTACH, BACK, BREAK, CONTINUE, DONE, FRAME, INTO, NEXT, NUMBER, QUIT, RUN, STRING, THREAD};
+    public enum TOKEN {ALL, ATTACH, BACK, BREAK, CONTINUE, DONE, FRAME, INTO, NEXT, NUMBER, PREPARE, QUIT, RUN, STRING, THREAD};
 
     static HashMap<String, TOKEN> keywords = new HashMap<String, TOKEN>();
 
     static {
-        keywords.put("all",      TOKEN.ALL);
-        keywords.put("attach",   TOKEN.ATTACH);
-        keywords.put("back",     TOKEN.BACK);
-        keywords.put("break",    TOKEN.BREAK);
+        keywords.put("all",         TOKEN.ALL);
+        keywords.put("attach",    TOKEN.ATTACH);
+        keywords.put("back",      TOKEN.BACK);
+        keywords.put("break",     TOKEN.BREAK);
         keywords.put("continue", TOKEN.CONTINUE);
-        keywords.put("frame",    TOKEN.FRAME);
-        keywords.put("into",     TOKEN.INTO);
-        keywords.put("next",     TOKEN.NEXT);
-        keywords.put("quit",     TOKEN.QUIT);
-        keywords.put("run",      TOKEN.RUN);
-        keywords.put("thread",   TOKEN.THREAD);
+        keywords.put("frame",     TOKEN.FRAME);
+        keywords.put("into",        TOKEN.INTO);
+        keywords.put("next",       TOKEN.NEXT);
+        keywords.put("prepare",  TOKEN.PREPARE);
+        keywords.put("quit",        TOKEN.QUIT);
+        keywords.put("run",        TOKEN.RUN);
+        keywords.put("thread",    TOKEN.THREAD);
     }
 
     private String [] tokens = null;

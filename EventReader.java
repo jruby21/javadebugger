@@ -60,20 +60,7 @@ class EventReader extends Thread
                     } else if (event instanceof MethodExitEvent) {
                         ;
                     } else if (event instanceof ClassPrepareEvent) {
-                        List<Method> mlist = ((ClassType) ((ClassPrepareEvent) event).referenceType()).methodsByName("main");
-
-                        if (mlist != null && mlist.size() > 0)
-
-                            {
-                                Method meth =  mlist.get(0);
-                                
-                                if (meth != null && meth.location() != null)
-
-                                    {
-                                        BreakpointRequest brF1 = vm.eventRequestManager().createBreakpointRequest(meth.location());
-                                        brF1.enable();
-                                    }
-                            }
+                        System.out.println("classloaded," + ((ClassPrepareEvent) event).referenceType().name());
                     } else if (event instanceof ClassUnloadEvent) {
                         ;
                     } else if (event instanceof VMDeathEvent)   {
@@ -99,7 +86,7 @@ class EventReader extends Thread
                         System.out.println("thread died " 
                                            + (new thread(((ThreadStartEvent) event).thread())).toString());
                     } else if (event instanceof VMStartEvent) {
-                        System.out.println("vm started");
+                        System.out.println("vmstart");
                     } else {
                         ;
                     }
@@ -107,7 +94,7 @@ class EventReader extends Thread
             } catch (InterruptedException exc) {
                 // Do nothing. Any changes will be seen at top of loop.
             } catch (VMDisconnectedException discExc) {
-                System.out.println("Exception " + discExc);
+                System.out.println("Exception," + discExc);
                 connected = false;
                 break;
             }
