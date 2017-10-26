@@ -263,11 +263,13 @@ public class debugger
                         if (tok0 == parser.TOKEN.ALL)
 
                             {
+                                System.out.print("thread,");
+
                                 for (ThreadReference thr: vm.allThreads())
 
                                     System.out.print((new thread(thr)).toString());
 
-                                System.out.print("endthread\n");
+                                System.out.print("\n");
                             }
 
                         else if (tok0 == parser.TOKEN.STRING)
@@ -277,12 +279,16 @@ public class debugger
 
                                 if (tr != null)
 
-                                    System.out.println(tr.toString() + "endthread\n");
+                                    System.out.println("thread," + tr.toString());
+
+                                else
+
+                                    System.out.println("error,no thread with id " + parse.getString());
                             }
 
                         else
 
-                            System.out.println("error - thread (all | thread-id");
+                            System.out.println("error,thread (all | thread-id");
 
                         break;
 

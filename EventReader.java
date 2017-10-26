@@ -39,8 +39,6 @@ class EventReader extends Thread
                 while (it.hasNext()) {
 
                     Event event = (Event) it.next();
-
-                    System.out.println("event - " +  event.toString());
                     
                     if (event instanceof BreakpointEvent) {
                         BreakpointEvent bp = (BreakpointEvent) event;
@@ -48,8 +46,28 @@ class EventReader extends Thread
                                            + (new thread(bp.thread())).toString()
                                            + (new location(bp.location())).toString()
                                            + "endbreakpoint\n");
-                    } else if (event instanceof WatchpointEvent) {
-                        ;
+
+                        Location loc = bp.location();
+                        ReferenceType or = loc.declaringType();
+
+                        System.out.println("locations object reference: "
+                                           + or.toString()
+                                           + " " + or.classObject().toString()
+                                           + " " + or.sourceName()
+                                           + " " + or.name()
+                                           + " "  + or.isAbstract()
+                                           + " " + or.isFinal()
+                                           + " " + or.isInitialized()
+                                           + " " + or.isPrepared()
+                                           + " " + or.isStatic()
+                                           + " " + or.isVerified());
+
+                        for (Method m : or.methods())
+                            System.out.println("Method: " + m.name() + " " + m.returnTypeName());
+
+                        for (Field f : or.fields())
+
+                            System.out.println("Field: " + f.name() + " " + f.typeName());
                     } else if (event instanceof StepEvent) {
                         StepEvent se = (StepEvent) event;
                         System.out.println("step\n"
@@ -80,10 +98,10 @@ class EventReader extends Thread
                                            + ","
                                            + (msgVal == null ? "" : msgVal.value()));
                     } else if (event instanceof ThreadStartEvent) {
-                        System.out.println("thread started " 
+                        System.out.println("threadstart," 
                                            + (new thread(((ThreadStartEvent) event).thread())).toString());
                     } else if (event instanceof ThreadDeathEvent) {
-                        System.out.println("thread died " 
+                        System.out.println("threaddeath."
                                            + (new thread(((ThreadStartEvent) event).thread())).toString());
                     } else if (event instanceof VMStartEvent) {
                         System.out.println("vmstart");
@@ -97,8 +115,9 @@ class EventReader extends Thread
                 System.out.println("Exception," + discExc);
                 connected = false;
                 break;
+            } catch (AbsentInformationException a)  {
+                System.out.println("Exception," + a);
             }
-        }
+            }
     }
 }
-    
