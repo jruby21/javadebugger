@@ -156,7 +156,6 @@ class thread
             + ","
             + tr.isAtBreakpoint()
             + ","
-            + tr.isSuspended()
-            + "\n";
+            + tr.isSuspended();
     }
 }

@@ -219,6 +219,7 @@ public class debugger
                         break;
                         
                     case QUIT:
+                        vm.exit(0);
                         System.exit(0);
 
 
@@ -330,46 +331,44 @@ public class debugger
 
     private void attach(String host, String port)
     {
-        List<AttachingConnector> l = Bootstrap.virtualMachineManager().attachingConnectors();
+        try {
+            List<AttachingConnector> l = Bootstrap.virtualMachineManager().attachingConnectors();
 
-        AttachingConnector ac = null;
+            AttachingConnector ac = null;
                         
-        for (AttachingConnector c: l) {
+            for (AttachingConnector c: l) {
                     
-            if (c.name().equals("com.sun.jdi.SocketAttach")) {
-                ac = c;
-                break;
+                if (c.name().equals("com.sun.jdi.SocketAttach")) {
+                    ac = c;
+                    break;
+                }
             }
-        }
         
-        if (ac == null)
-                    
-            System.out.println("attach error - unable to locate ProcessAttachingConnector");
+            if (ac == null)
 
-        else
-
-            {
-                try {
-                    Map<String,Connector.Argument> env = ac.defaultArguments();
-                
-                    env.get("hostname").setValue(host);
-                    env.get("port").setValue(port);
-                
-                    vm = ac.attach(env);
-                    new EventReader(vm).start();
-                } catch (IOException | IllegalConnectorArgumentsException e) {
-                    System.out.println("attach error - " + e.toString());
+                {
+                    System.out.println("error,unable to locate ProcessAttachingConnector");
                     return;
                 }
 
-                if (vm == null)
+            Map<String,Connector.Argument> env = ac.defaultArguments();
+                
+            env.get("hostname").setValue(host);
+            env.get("port").setValue(port);
+                
+            vm = ac.attach(env);
+            new EventReader(vm).start();
 
-                    System.out.println("attach error - failed to create virtual machine");
+            if (vm == null)
 
-                else
+                System.out.println("error,failed to create virtual machine");
 
-                    System.out.println("attach created virtual machine");
-            }
+            else
+
+                System.out.println("attached,created virtual machine");
+        } catch (IOException | IllegalConnectorArgumentsException e) {
+            System.out.println("exception, " + e.toString());
+        }
     }
 
     private void step(String threadID, int size, int depth)

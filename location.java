@@ -22,8 +22,7 @@ class location
                 + ","
                 + loc.lineNumber()
                 + ","
-                + loc.method().name()
-                + "\n";
+                + loc.method().name();
         } catch (AbsentInformationException e) {
             return "error,location not available\n";
         }

@@ -42,10 +42,7 @@ class EventReader extends Thread
                     
                     if (event instanceof BreakpointEvent) {
                         BreakpointEvent bp = (BreakpointEvent) event;
-                        System.out.println("breakpoint\n"
-                                           + (new thread(bp.thread())).toString()
-                                           + (new location(bp.location())).toString()
-                                           + "endbreakpoint\n");
+                        System.out.println("breakpoint," + (new thread(bp.thread())).toString() + "," + (new location(bp.location())).toString());
 
                         Location loc = bp.location();
                         ReferenceType or = loc.declaringType();
