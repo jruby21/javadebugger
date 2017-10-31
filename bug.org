@@ -192,74 +192,25 @@
         (if (= (length (window-list)) 1)
             (split-window))
         (winForOtherBuffer bug (process-buffer proc))
-        (let ((procWin (winForOtherBuffer (process-buffer proc)) bug))
+        (let ((procWin (winForOtherBuffer (process-buffer proc) bug)))
           (if procWin
               (select-window procWin))))))
 
   (defun winForOtherBuffer (buffer notbuffer)
-    (if (and buffer notbuffer)
-      (let ((win (get-buffer-window buffer)))
-        (if (not win)
-          (let  ((wl (window-list)))
-            (while (and wl (eq ((window-buffer (car wl)) notbuffer)))
+    (let ((win (get-buffer-window buffer)))
+      (when (not win)
+        (let  ((wl (window-list)))
+            (while (and wl (eq notbuffer (window-buffer (car wl))))
               (setq wl (cdr wl)))
-            (setq win (if wl (car wl) (car (window-list)))))
-          (set-window-buffer win buffer))
+            (setq win (if wl (car wl) (car (window-list))))
+          (set-window-buffer win buffer)))
         win))
-    ())
+
 #+END_SRC
 
-** Starting debugger session Mon Oct 30 11:46:05 2017
-*** attach localhost 8000
-Debugger started
-attached,created virtual machine
-vmstart
-connected to java program
-*** prepare foo
-*** run
-classloaded,foo
-main class loaded
-*** break foo main
-*** continue
-breakpoint,thread,1,main,running,1,true,true,location,foo.java,5,main
-breakpoint in thread 1 at foo.java:5
-locations object reference: class foo (loaded by instance of sun.misc.Launcher$AppClassLoader(id=66)) instance of java.lang.Class(reflected class=foo, id=63) foo.java foo false false true true false true
-Method: <init> void
-Method: main void
-Method: sum int
-Field: a int
-Field: b int
-*** quit
-VMDisconnectEvent
-Exception,com.sun.jdi.VMDisconnectedException
-
-Process jdbProxy<1> finished
-** Starting debugger session Mon Oct 30 11:47:49 2017
-*** attach localhost 8000
-Debugger started
-attached,created virtual machine
-vmstart
-connected to java program
-*** prepare foo
-*** run
-classloaded,foo
-main class loaded
-*** break foo main
-*** continue
-breakpoint,thread,1,main,running,1,true,true,location,foo.java,5,main
-breakpoint in thread 1 at foo.java:5
-locations object reference: class foo (loaded by instance of sun.misc.Launcher$AppClassLoader(id=66)) instance of java.lang.Class(reflected class=foo, id=63) foo.java foo false false true true false true
-Method: <init> void
-Method: main void
-Method: sum int
-Field: a int
-Field: b int
-*** quit
-VMDisconnectEvent
-Exception,com.sun.jdi.VMDisconnectedException
-
-Process jdbProxy<1> finished
-** Starting debugger session Mon Oct 30 11:52:57 2017
+#+RESULTS:
+: winForOtherBuffer
+** Starting debugger session Mon Oct 30 23:28:11 2017
 *** attach localhost 8000
 Debugger started
 attached,created virtual machine
