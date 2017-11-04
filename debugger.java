@@ -264,11 +264,11 @@ public class debugger
                         if (tok0 == parser.TOKEN.ALL)
 
                             {
-                                System.out.print("thread,");
+                                System.out.print("thread");
 
                                 for (ThreadReference thr: vm.allThreads())
 
-                                    System.out.print((new thread(thr)).toString());
+                                    System.out.print("," + (new thread(thr)).toString());
 
                                 System.out.print("\n");
                             }

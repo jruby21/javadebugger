@@ -149,20 +149,25 @@
                (setq args (skipThread args)))
              (writeOrgTableToBuffer proc threadTableTitle retstring)))))
 
-  (defun threadID (args) (nth 0 args))
-  (defun threadName (args) (nth 1 args))
-  (defun threadState (args) (nth 2 args))
-  (defun threadFrames (args) (nth 3 args))
-  (defun threadBreakpoint (args) (nth 4 args))
-  (defun threadSuspended (args) (nth 5 args))
-  (defun skipThread (args) (nthcdr 6 args))
+  (defun threadID (args) (nth 1 args))
+  (defun threadName (args) (nth 2 args))
+  (defun threadState (args) (nth 3 args))
+  (defun threadFrames (args) (nth 4 args))
+  (defun threadBreakpoint (args) (nth 5 args))
+  (defun threadSuspended (args) (nth 6 args))
 
-  (defun breakpointThread (args) (-slice args 1 7))
-  (defun breakpointLocation (args) (-slice args  8 12))
+  (defun skipThread (args) (nthcdr 7 args))
+  (defun threadDescriptor (args)
+   (if (string= "thread" (car args))
+       (-slice args 0 7)
+     ()))
 
-  (defun locationFile (args) (nth 0 args))
-  (defun locationLineNumber (args) (nth 1 args))
-  (defun locationMethod (args) (nth 2 args))
+  (defun breakpointThread (args) (-slice args 0 7))
+  (defun breakpointLocation (args) (-slice args  7 12))
+
+  (defun locationFile (args) (nth 1 args))
+  (defun locationLineNumber (args) (nth 2 args))
+  (defun locationMethod (args) (nth 3 args))
 
   (defun nameValuePairName (args) (nth 0 args))
   (defun nameValuePairValue (args) (nth 1 args))
@@ -210,7 +215,7 @@
 
 #+RESULTS:
 : winForOtherBuffer
-** Starting debugger session Mon Oct 30 23:28:11 2017
+** Starting debugger session Wed Nov  1 19:39:49 2017
 *** attach localhost 8000
 Debugger started
 attached,created virtual machine
@@ -230,3 +235,24 @@ Method: main void
 Method: sum int
 Field: a int
 Field: b int
+*** thread all
+thread,thread,69,Signal Dispatcher,running,0,false,true,thread,70,Finalizer,waiting,4,false,true,thread,71,Reference Handler,waiting,4,false,true,thread,1,main,running,1,true,true
+| ID | Name              | State   | Frames | Breakpoint | Suspended |
+|  1 | main              | running |      1 | true       | true      |
+| 71 | Reference Handler | waiting |      4 | false      | true      |
+| 70 | Finalizer         | waiting |      4 | false      | true      |
+| 69 | Signal Dispatcher | running |      0 | false      | true      |
+*** frame 1 0
+argument,args,instance of java.lang.String[0] (id=72)
+local
+
+|Argumentsl|Value|
+----
+ | args | instance of java.lang.String[0] (id=72) 
+*** quit
+VMDisconnectEvent
+Exception,com.sun.jdi.VMDisconnectedException
+
+Process jdbProxy<2> finished
+|Local|Value|
+----
