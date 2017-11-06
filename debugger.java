@@ -431,5 +431,85 @@ public class debugger
 
         return null;
     }
+
+    public static String getValueString (Value v)
+    {
+        if (v == null)
+
+            return "null";
+
+        System.out.println("getValueString " + v.toString() + " , " + v.type().name() + " , " + v.type().toString() + " , " + (v.type() instanceof ClassType) + " , " + v.getClass() + " < " + (v.type() instanceof ReferenceType));
+
+        if ((v.type() instanceof ReferenceType) && (v.type() instanceof ClassType))
+
+                            {
+                                ClassType   ct  = (ClassType) v.type();
+                                List<Field>	fld = ct.allFields();
+
+                                for (Field f : fld)
+
+                                    System.out.println("field " + f.name() + " value: " + ((ObjectReference) v).getValue(f).toString());
+                            }
+        
+        if (v instanceof PrimitiveValue)
+            {
+                if (v instanceof BooleanValue)  return Boolean.toString(((BooleanValue) v).value());
+                if (v instanceof ByteValue)        return Byte.toString(((ByteValue) v).value());
+                if (v instanceof CharValue)       return Character.toString(((CharValue) v).value());
+                if (v instanceof DoubleValue)    return Double.toString(((DoubleValue) v).value());
+                if (v instanceof FloatValue)       return Float.toString(((FloatValue) v).value());
+                if (v instanceof IntegerValue)    return Integer.toString(((IntegerValue) v).value());
+                if (v instanceof LongValue)      return Long.toString(((LongValue) v).value());
+                if (v instanceof ShortValue)      return Short.toString(((ShortValue) v).value());
+            }
+
+        else if (v instanceof ObjectReference)
+
+            {
+                StringBuilder b = new StringBuilder();
+
+                if (v instanceof StringReference)  return ((StringReference) v).value();
+
+                if (v instanceof ArrayReference)
+
+                    {
+                        ArrayReference av = (ArrayReference) v;
+
+                        int len = (av.length() > 20 ? 20 : av.length());
+
+                        for (int i = 0; i < len; i++)
+
+                            b = b.append("( " + i + " " + getValueString(av.getValue(i)) + ")");
+
+                        return b.toString();
+                    }
+
+                if (v instanceof ClassLoaderReference) ;
+
+                if (v instanceof ClassObjectReference)
+
+                    {
+                        ReferenceType rt = ((ClassObjectReference) v).reflectedType();
+                        System.out.println("classobjectreference " + rt.toString());
+                        if (rt instanceof ClassType)
+
+                            {
+                                ClassType   ct  = (ClassType) rt;
+                                List<Field>	fld = ct.allFields();
+
+                                for (Field f : fld)
+
+                                    b = b.append("( " + f.name() + " " + getValueString(rt.getValue(f)) + ")");
+                            }
+                    }
+                
+                if (v instanceof ThreadGroupReference) ;
+                if (v instanceof ThreadReference) ;
+            }
+
+        if (v instanceof VoidValue) ;
+    
+        return "";
+    }
 }
 

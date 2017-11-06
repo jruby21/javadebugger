@@ -76,19 +76,11 @@ class thread
                 for (LocalVariable var : vars)
 
                     {
-                        String  s =  "," + var.name() + ",";
-
-                        if  (values != null)
-
-                            {
-                                Value  val = values.get(var);
-                                s = s + ((val == null) ? " null" : val.toString());
-                            }
-
-                        else
-
-                            s = s + "null";
-
+                        String  s =  ","
+                            + var.name()
+                            + ","
+                            + ((values == null) ? "null" : debugger.getValueString(values.get(var)));
+ 
                         if (var.isArgument())
 
                             ab.append(s);

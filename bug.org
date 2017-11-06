@@ -23,7 +23,7 @@
 
     (defvar proxyProcess nil "the JAVA proxy program which connects to the program to be debugged")
 
-    (defconst orgTableSeperator     "----"                                                                 "string to seperate table title from contents")
+    (defconst orgTableSeperator     "|----|"                                                                 "string to seperate table title from contents")
     (defconst localTableTitle         "|Local|Value|\n"                                                  "title tor local variables table")
     (defconst argumentsTableTitle "|Argumentsl|Value|\n"                                           "title for method arguments table")
     (defconst threadTableTitle       "|ID|Name|State|Frames|Breakpoint|Suspended|\n"    "title for thread table")
@@ -73,7 +73,7 @@
           (insert string)
           (set-marker (process-mark proc) (point))))))
 
-  (defun writeOrgTableToBuffer (proc title strings)
+  (defun writeOrgTableToBuffer (proc title rows)
     (when (buffer-live-p (process-buffer proc))
       (with-current-buffer (process-buffer proc)
         (save-excursion
@@ -81,8 +81,11 @@
           (goto-char (process-mark proc))
           (insert title)
           (insert orgTableSeperator)
-          (dolist (s strings)
-            (insert (concat "\n" s)))
+          (dolist (r rows)
+            (let ((s "\n | "))
+              (dolist (col r)
+                (setq s (concat s col " |")))
+              (insert s)))
           (beginning-of-line)
           (org-ctrl-c-ctrl-c)
           (end-of-line)
@@ -117,7 +120,7 @@
 
   (defun basicState (proc act args)
     (let ((retstring ()))
-      (cond ((string= act "breakpoint")
+      (cond ((or (string= act "breakpoint") (string= act "step"))
              (writeStringToBuffer
               proc
               (concat
@@ -132,22 +135,21 @@
               proc
               (locationFile (breakpointLocation args))
               (locationLineNumber (breakpointLocation args))))
-            ((string= act "step"))
-            ((string= act "local")
+            ((or (string= act "local") (string= act "argument"))
+             (let ((b nil))
              (while args
-               (setq retstring (cons (concat " | " (nameValuePairName args) " | "  (nameValuePairValue args) " \ ") retstring))
-               (setq args (skipNameValuePair args)))
-             (writeOrgTableToBuffer proc localTableTitle retstring))
-            ((string= act "argument")
-             (while args
-               (setq retstring (cons (concat " | " (nameValuePairName args) " | "  (nameValuePairValue args) " \ ") retstring))
-               (setq args (skipNameValuePair args)))
-             (writeOrgTableToBuffer proc argumentsTableTitle retstring))
+                 (setq b (cons (list (nth 0 args) (nth 1 args)) b))
+                 (setq args (nthcdr 2 args)))
+             (writeOrgTableToBuffer
+              proc
+              (if (string= act "local") localTableTitle argumentsTableTitle)
+              b)))
             ((string= act "thread")
-             (while args
-               (setq retstring (cons (concat "| " (threadID args) " | " (threadName args) " | " (threadState args) " | " (threadFrames args) " | " (threadBreakpoint args) " | " (threadSuspended args) " | ") retstring))
-               (setq args (skipThread args)))
-             (writeOrgTableToBuffer proc threadTableTitle retstring)))))
+             (let ((b nil))
+               (while (and args (threadDescriptor args))
+                 (setq b (cons (list (threadID args)  (threadName args) (threadState args)  (threadFrames args)  (threadBreakpoint args) (threadSuspended args)) b))
+                 (setq args (skipThread args)))
+               (writeOrgTableToBuffer proc threadTableTitle b))))))
 
   (defun threadID (args) (nth 1 args))
   (defun threadName (args) (nth 2 args))
@@ -212,47 +214,3 @@
         win))
 
 #+END_SRC
-
-#+RESULTS:
-: winForOtherBuffer
-** Starting debugger session Wed Nov  1 19:39:49 2017
-*** attach localhost 8000
-Debugger started
-attached,created virtual machine
-vmstart
-connected to java program
-*** prepare foo
-*** run
-classloaded,foo
-main class loaded
-*** break foo main
-*** continue
-breakpoint,thread,1,main,running,1,true,true,location,foo.java,5,main
-breakpoint in thread 1 at foo.java:5
-locations object reference: class foo (loaded by instance of sun.misc.Launcher$AppClassLoader(id=66)) instance of java.lang.Class(reflected class=foo, id=63) foo.java foo false false true true false true
-Method: <init> void
-Method: main void
-Method: sum int
-Field: a int
-Field: b int
-*** thread all
-thread,thread,69,Signal Dispatcher,running,0,false,true,thread,70,Finalizer,waiting,4,false,true,thread,71,Reference Handler,waiting,4,false,true,thread,1,main,running,1,true,true
-| ID | Name              | State   | Frames | Breakpoint | Suspended |
-|  1 | main              | running |      1 | true       | true      |
-| 71 | Reference Handler | waiting |      4 | false      | true      |
-| 70 | Finalizer         | waiting |      4 | false      | true      |
-| 69 | Signal Dispatcher | running |      0 | false      | true      |
-*** frame 1 0
-argument,args,instance of java.lang.String[0] (id=72)
-local
-
-|Argumentsl|Value|
-----
- | args | instance of java.lang.String[0] (id=72) 
-*** quit
-VMDisconnectEvent
-Exception,com.sun.jdi.VMDisconnectedException
-
-Process jdbProxy<2> finished
-|Local|Value|
-----
