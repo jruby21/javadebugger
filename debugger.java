@@ -438,77 +438,66 @@ public class debugger
 
             return "null";
 
-        System.out.println("getValueString " + v.toString() + " , " + v.type().name() + " , " + v.type().toString() + " , " + (v.type() instanceof ClassType) + " , " + v.getClass() + " < " + (v.type() instanceof ReferenceType));
+        System.out.println("getValueString " + v.toString() + " ,  v.type.name() " + v.type().name() + " , v.type.toString  " + v.type().toString() + " , is ClassType " + (v.type() instanceof ClassType) + " , v.getClass " + v.getClass() + ", is ReferenceType " + (v.type() instanceof ReferenceType) + ", value is ObjectReference " + (v instanceof ObjectReference));
+
+        if (v instanceof BooleanValue)  return "\"" + Boolean.toString(((BooleanValue) v).value()) + "\"";
+        if (v instanceof ByteValue)        return "\"" + Byte.toString(((ByteValue) v).value()) + "\"";
+        if (v instanceof CharValue)       return "\"" + Character.toString(((CharValue) v).value()) + "\"";
+        if (v instanceof DoubleValue)    return "\"" + Double.toString(((DoubleValue) v).value()) + "\"";
+        if (v instanceof FloatValue)       return "\"" + Float.toString(((FloatValue) v).value()) + "\"";
+        if (v instanceof IntegerValue)    return "\"" + Integer.toString(((IntegerValue) v).value()) + "\"";
+        if (v instanceof LongValue)      return "\"" + Long.toString(((LongValue) v).value()) + "\"";
+        if (v instanceof ShortValue)      return "\"" + Short.toString(((ShortValue) v).value()) + "\"";
+        if (v instanceof StringReference)  return "\"" + ((StringReference) v).value() + "\"";
+
+        if (v instanceof ArrayReference)
+
+            {
+                StringBuilder     b  = new StringBuilder();
+                ArrayReference av = (ArrayReference) v;
+
+                int len = (av.length() > 20 ? 20 : av.length());
+                
+                for (int i = 0; i < len; i++)
+                    
+                    b = b.append("( \"" + i + "\" " + getValueString(av.getValue(i)) + ")");
+                
+                b.append(" ) ");
+                return b.toString();
+            }
 
         if ((v.type() instanceof ReferenceType) && (v.type() instanceof ClassType))
 
-                            {
-                                ClassType   ct  = (ClassType) v.type();
-                                List<Field>	fld = ct.allFields();
-
-                                for (Field f : fld)
-
-                                    System.out.println("field " + f.name() + " value: " + ((ObjectReference) v).getValue(f).toString());
-                            }
-        
-        if (v instanceof PrimitiveValue)
             {
-                if (v instanceof BooleanValue)  return Boolean.toString(((BooleanValue) v).value());
-                if (v instanceof ByteValue)        return Byte.toString(((ByteValue) v).value());
-                if (v instanceof CharValue)       return Character.toString(((CharValue) v).value());
-                if (v instanceof DoubleValue)    return Double.toString(((DoubleValue) v).value());
-                if (v instanceof FloatValue)       return Float.toString(((FloatValue) v).value());
-                if (v instanceof IntegerValue)    return Integer.toString(((IntegerValue) v).value());
-                if (v instanceof LongValue)      return Long.toString(((LongValue) v).value());
-                if (v instanceof ShortValue)      return Short.toString(((ShortValue) v).value());
-            }
+                StringBuilder b  = new StringBuilder();
+                List<Field>	 fld = ((ClassType) v.type()).allFields();
 
-        else if (v instanceof ObjectReference)
+                List<InterfaceType>  it = ((ClassType)  v.type()).allInterfaces();
 
-            {
-                StringBuilder b = new StringBuilder();
-
-                if (v instanceof StringReference)  return ((StringReference) v).value();
-
-                if (v instanceof ArrayReference)
+                for (InterfaceType i : it)
 
                     {
-                        ArrayReference av = (ArrayReference) v;
-
-                        int len = (av.length() > 20 ? 20 : av.length());
-
-                        for (int i = 0; i < len; i++)
-
-                            b = b.append("( " + i + " " + getValueString(av.getValue(i)) + ")");
-
-                        return b.toString();
-                    }
-
-                if (v instanceof ClassLoaderReference) ;
-
-                if (v instanceof ClassObjectReference)
-
-                    {
-                        ReferenceType rt = ((ClassObjectReference) v).reflectedType();
-                        System.out.println("classobjectreference " + rt.toString());
-                        if (rt instanceof ClassType)
-
-                            {
-                                ClassType   ct  = (ClassType) rt;
-                                List<Field>	fld = ct.allFields();
-
-                                for (Field f : fld)
-
-                                    b = b.append("( " + f.name() + " " + getValueString(rt.getValue(f)) + ")");
-                            }
+                        System.out.println("InterfaceType name " + i.name());
                     }
                 
-                if (v instanceof ThreadGroupReference) ;
-                if (v instanceof ThreadReference) ;
+                for (Field f : fld)
+
+                    b = b.append("( \""
+                                 + f.name()
+                                 + "\" "
+                                 + getValueString(((ObjectReference) v).getValue(f))
+                                 + " )");
+                
+                b.append(") ");
+                return b.toString();
             }
 
-        if (v instanceof VoidValue) ;
-    
+        else if (v instanceof ClassLoaderReference) ;
+        else if (v instanceof ClassObjectReference) ;
+        else if (v instanceof ThreadGroupReference) ;
+        else if (v instanceof ThreadReference) ;
+        else if (v instanceof VoidValue) ;
+
         return "";
     }
 }

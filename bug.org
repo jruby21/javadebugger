@@ -13,49 +13,50 @@
 /home/jruby/tools/jdk1.8.0_131/bin/java -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" -agentlib:jdwp=transport=dt_socket,address=localhost:8000,server=y,suspend=y foo
 
 #+BEGIN_SRC emacs-lisp :tangle yes
-    (require 'ht)
-    (require 's)
+  (require 'ht)
+  (require 's)
+  (require 'bm)
 
-    (defvar javadebug-mode-map
-      (let ((map (make-sparse-keymap)))
-        (define-key map "\C-j" 'sendDebuggerCommand)
-        map))
+  (defvar javadebug-mode-map
+    (let ((map (make-sparse-keymap)))
+      (define-key map "\C-j" 'sendDebuggerCommand)
+            map))
 
-    (defvar proxyProcess nil "the JAVA proxy program which connects to the program to be debugged")
+  (defvar proxyProcess nil "the JAVA proxy program which connects to the program to be debugged")
 
-    (defconst orgTableSeperator     "|----|"                                                                 "string to seperate table title from contents")
-    (defconst localTableTitle         "|Local|Value|\n"                                                  "title tor local variables table")
-    (defconst argumentsTableTitle "|Argumentsl|Value|\n"                                           "title for method arguments table")
-    (defconst threadTableTitle       "|ID|Name|State|Frames|Breakpoint|Suspended|\n"    "title for thread table")
+  (defconst orgTableSeperator     "|----|\n"                                                                 "string to seperate table title from contents")
+  (defconst localTableTitle         "Locals\n"                                                              "title tor local variables table")
+  (defconst argumentsTableTitle "Arguments\n"                                                        "title for method arguments table")
+  (defconst threadTableTitle       "|ID|Name|State|Frames|Breakpoint|Suspended|\n"    "title for thread table")
 
-    (define-derived-mode javadebug-mode
-      org-mode "JavaDebug"
-      "Major mode java debugger.")
+  (define-derived-mode javadebug-mode
+    org-mode "JavaDebug"
+    "Major mode java debugger.")
 
   (defun startProc (px src mn)
-      (interactive "Dproxy directory: \nDsource root:: \nMmain class ")
-      (cd (file-name-as-directory px))
-      (setq proxyProcess (start-process 
-                          "jdbProxy" 
-                          (current-buffer)
-                          "/home/jruby/tools/jdk1.8.0_131/bin/java" 
-                          "-cp" 
-                          "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
-                          "debugger"))
-      (goto-char (point-max))
-      (set-marker (process-mark proxyProcess) (point))
-      (delete-other-windows)
-      (javadebug-mode)
-      (setq sourceWindow (split-window-below))
-      (setq expected
-            (list
-             (list "vmstart" "connected to java program" (list (concat "prepare " mn) "run"))
-             (list "classloaded" "main class loaded" (list (concat "break " mn " main") "continue"))))
-      (setq stateStack (list "start" "basic"))
-      (setq jdbuggerString "")
-      (set-process-filter proxyProcess 'javadebug-insertion-filter)
-      (writeStringToBuffer proxyProcess (concat "** Starting debugger session " (current-time-string) "\n"))
-      (sendDebuggerCommand "attach localhost 8000"))
+    (interactive "Dproxy directory: \nDsource root:: \nMmain class ")
+    (cd (file-name-as-directory px))
+    (setq proxyProcess (start-process 
+                        "jdbProxy" 
+                        (current-buffer)
+                        "/home/jruby/tools/jdk1.8.0_131/bin/java" 
+                        "-cp" 
+                        "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
+                        "debugger"))
+    (goto-char (point-max))
+    (set-marker (process-mark proxyProcess) (point))
+    (delete-other-windows)
+    (javadebug-mode)
+    (setq sourceWindow (split-window-below))
+    (setq expected
+          (list
+           (list "vmstart" "connected to java program" (list (concat "prepare " mn) "run"))
+           (list "classloaded" "main class loaded" (list (concat "break " mn " main") "continue"))))
+    (setq stateStack (list "start" "basic"))
+    (setq jdbuggerString "")
+    (set-process-filter proxyProcess 'javadebug-insertion-filter)
+    (writeStringToBuffer proxyProcess (concat "** Starting debugger session " (current-time-string) "\n"))
+    (sendDebuggerCommand "attach localhost 8000"))
 
   (defun sendDebuggerCommand (command)
     (interactive "Mdebugger command: ")
@@ -73,27 +74,53 @@
           (insert string)
           (set-marker (process-mark proc) (point))))))
 
-  (defun writeOrgTableToBuffer (proc title rows)
+  (defun writeOrgTableToBuffer (proc title sep rows)
     (when (buffer-live-p (process-buffer proc))
       (with-current-buffer (process-buffer proc)
         (save-excursion
           ;; Insert the text, advancing the process marker.
-          (goto-char (process-mark proc))
-          (insert title)
-          (insert orgTableSeperator)
-          (dolist (r rows)
-            (let ((s "\n | "))
-              (dolist (col r)
-                (setq s (concat s col " |")))
-              (insert s)))
-          (beginning-of-line)
-          (org-ctrl-c-ctrl-c)
-          (end-of-line)
-          (insert "\n")
-          (set-marker (process-mark proc) (point))))))
+          (goto-char (process-mark proc)) ;
+          (insert (concat "\n\n" title))
+          (insert sep)
+          (insert (dataLayout rows))
+          (set-marker (process-mark proc) (point))
+          (beginning-of-line 0)
+          (org-ctrl-c-ctrl-c)))))
+
+  (defun dataLayout (args)
+    (if args
+        (let ((s "| ")
+              (stack nil)
+              (rc 0)
+              (ac 0))
+          (push (list rc args) stack)
+          (while stack
+            (cond
+             ((not args)
+              (let ((a (pop stack)))
+                (setq args (nth 1 a))
+                (setq rc     (nth 0 a))))
+             ((listp (car args))
+              (push (list rc (cdr args)) stack)
+              (setq args (car args)))
+             ((not (listp (car args)))
+              (let ((v (car args)))
+                (setq args (cdr args))
+                (while (/= rc ac)
+                  (cond
+                   ((< ac rc)
+                    (setq s (concat s " | "))
+                    (setq ac (1+ ac)))
+                   ((> ac rc)
+                    (setq s (concat s "\n| "))
+                    (setq ac 0))))
+                (setq s (concat s v))
+                (setq rc (1+ rc))))))
+          s)
+      ""))
 
   (defun javadebug-insertion-filter (proc string)
-  (message "insertion filter %s" string)
+    (message "insertion filter %s" string)
     (writeStringToBuffer proc string)
     (setq jdbuggerString (concat jdbuggerString string))
     (if (and (s-present? jdbuggerString) (string-match-p "[a-zA-Z]" jdbuggerString))
@@ -108,15 +135,15 @@
       (setq jdbuggerString "")))
 
   (defun jdbAction (proc in)
-      (let ((state (car stateStack))
-             (act   (car in))
-             (args  (cdr in)))
-        (cond ((string= act "error")
-               (writeStringToBuffer proc (concat "*** Error "  (car args) "\n")))
-              ((string= state "basic")
-               (basicState proc act args))
-              ((string= state "start")
-               (startState proc act args)))))
+    (let ((state (car stateStack))
+          (act   (car in))
+          (args  (cdr in)))
+      (cond ((string= act "error")
+             (writeStringToBuffer proc (concat "*** Error "  (car args) "\n")))
+            ((string= state "basic")
+             (basicState proc act args))
+            ((string= state "start")
+             (startState proc act args)))))
 
   (defun basicState (proc act args)
     (let ((retstring ()))
@@ -124,7 +151,8 @@
              (writeStringToBuffer
               proc
               (concat
-               "breakpoint in thread "
+               act
+               " in thread "
                (threadID (breakpointThread args))
                " at "              
                (locationFile (breakpointLocation args))
@@ -136,20 +164,17 @@
               (locationFile (breakpointLocation args))
               (locationLineNumber (breakpointLocation args))))
             ((or (string= act "local") (string= act "argument"))
-             (let ((b nil))
-             (while args
-                 (setq b (cons (list (nth 0 args) (nth 1 args)) b))
-                 (setq args (nthcdr 2 args)))
-             (writeOrgTableToBuffer
+            (writeOrgTableToBuffer
               proc
               (if (string= act "local") localTableTitle argumentsTableTitle)
-              b)))
+               ""
+              (if (and args (car args)) (nth 0 (read-from-string (car args))) nil)))
             ((string= act "thread")
              (let ((b nil))
                (while (and args (threadDescriptor args))
                  (setq b (cons (list (threadID args)  (threadName args) (threadState args)  (threadFrames args)  (threadBreakpoint args) (threadSuspended args)) b))
                  (setq args (skipThread args)))
-               (writeOrgTableToBuffer proc threadTableTitle b))))))
+               (writeOrgTableToBuffer proc threadTableTitle orgTableSeperator b))))))
 
   (defun threadID (args) (nth 1 args))
   (defun threadName (args) (nth 2 args))
@@ -160,9 +185,9 @@
 
   (defun skipThread (args) (nthcdr 7 args))
   (defun threadDescriptor (args)
-   (if (string= "thread" (car args))
-       (-slice args 0 7)
-     ()))
+    (if (string= "thread" (car args))
+        (-slice args 0 7)
+      ()))
 
   (defun breakpointThread (args) (-slice args 0 7))
   (defun breakpointLocation (args) (-slice args  7 12))
@@ -177,7 +202,6 @@
 
   (defun startState (proc act args)
     (let ((ps (car expected)))
-    (message "startState %s" (car ps))
       (if (string= act (car ps))
           (let ((ms (nth 1 ps))
                 (cm (nth 2 ps)))
@@ -193,7 +217,9 @@
       (when (and bug (buffer-live-p (process-buffer proc)))
         (with-current-buffer bug
           (goto-char (point-min))
-          (forward-line (1- (string-to-number line))))
+          (forward-line (1- (string-to-number line)))
+          (bm-remove-all-all-buffers)
+          (bm-toggle))
         (with-current-buffer (process-buffer proc)
           (goto-char (point-max)))
         (if (= (length (window-list)) 1)
@@ -207,10 +233,173 @@
     (let ((win (get-buffer-window buffer)))
       (when (not win)
         (let  ((wl (window-list)))
-            (while (and wl (eq notbuffer (window-buffer (car wl))))
-              (setq wl (cdr wl)))
-            (setq win (if wl (car wl) (car (window-list))))
+          (while (and wl (eq notbuffer (window-buffer (car wl))))
+            (setq wl (cdr wl)))
+          (setq win (if wl (car wl) (car (window-list))))
           (set-window-buffer win buffer)))
-        win))
+      win))
 
 #+END_SRC
+
+#+RESULTS:
+: winForOtherBuffer
+** Starting debugger session Sat Nov 11 19:36:02 2017
+*** attach localhost 8000
+Debugger started
+attached,created virtual machine
+vmstart
+connected to java program
+*** prepare foo
+*** run
+classloaded,foo
+main class loaded
+*** break foo main
+*** continue
+breakpoint,thread,1,main,running,1,true,true,location,foo.java,5,main
+breakpoint in thread 1 at foo.java:5
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,6,main
+step in thread 1 at foo.java:6
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,7,main
+step in thread 1 at foo.java:7
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,9,main
+step in thread 1 at foo.java:9
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,10,main
+step in thread 1 at foo.java:10
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,12,main
+step in thread 1 at foo.java:12
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,14,main
+step in thread 1 at foo.java:14
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,15,main
+step in thread 1 at foo.java:15
+*** frame 1 0
+getValueString instance of java.lang.String[2] (id=70) ,  v.type.name() java.lang.String[] , v.type.toString  array class java.lang.String[] (no class loader) , is ClassType false , v.getClass class com.sun.tools.jdi.ArrayReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString "3" ,  v.type.name() java.lang.String , v.type.toString  class java.lang.String (no class loader) , is ClassType true , v.getClass class com.sun.tools.jdi.StringReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString "4" ,  v.type.name() java.lang.String , v.type.toString  class java.lang.String (no class loader) , is ClassType true , v.getClass class com.sun.tools.jdi.StringReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString 37 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 1 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 3 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString instance of foo(id=71) ,  v.type.name() foo , v.type.toString  class foo (loaded by instance of sun.misc.Launcher$AppClassLoader(id=76)) , is ClassType true , v.getClass class com.sun.tools.jdi.ObjectReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString 0 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 1 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+argument,("args" ( "0" "3")( "1" "4") ) )
+local,("i" "37"),("j" "1"),("k" "3"),("ff" ( "a" "0" )( "b" "1" )) )
+
+ i   37    
+ j    1    
+ k    3    
+ ff   a  0
+     b  1
+
+ i   7
+ j  1
+k  3
+ff  a 0
+   b  1
+
+
+
+
+Arguments
+| args | 0 | 3
+|  | 1 | 4
+
+Locals
+| i | 37*** quit
+VMDisconnectEvent
+Exception,com.sun.jdi.VMDisconnectedException
+
+Process jdbProxy finished
+o
+getValueString 37 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 1 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 3 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString instance of foo(id=71) ,  v.type.name() foo , v.type.toString  class foo (loaded by instance of sun.misc.Launcher$AppClassLoader(id=76)) , is ClassType true , v.getClass class com.sun.tools.jdi.ObjectReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString 0 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 1 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+argument,( ("args" ( "0" "3")( "1" "4") ) ))
+local,( ("i" "37") ("j" "1") ("k" "3") ("ff" ( "a" "0" )( "b" "1" )) ))
+
+
+
+Arguments
+| args | 0 | 3 |
+|      | 1 | 4 |
+
+Locals
+| i  | 37 |   |
+| j  |  1 |   |
+| k  |  3 |   |
+| ff |  a | 0 |
+|    |  b | 1 |
+*** quit
+VMDisconnectEvent
+Exception,com.sun.jdi.VMDisconnectedException
+
+Process jdbProxy finished
+
+dfdfdf** Starting debugger session Mon Nov 13 02:53:04 2017
+*** attach localhost 8000
+Debugger started
+attached,created virtual machine
+vmstart
+connected to java program
+*** prepare foo
+*** run
+classloaded,foo
+main class loaded
+*** break foo main
+*** continue
+breakpoint,thread,1,main,running,1,true,true,location,foo.java,7,main
+breakpoint in thread 1 at foo.java:7
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,8,main
+step in thread 1 at foo.java:8
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,9,main
+step in thread 1 at foo.java:9
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,10,main
+step in thread 1 at foo.java:10
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,12,main
+step in thread 1 at foo.java:12
+*** frame 1 0
+getValueString instance of java.lang.String[2] (id=70) ,  v.type.name() java.lang.String[] , v.type.toString  array class java.lang.String[] (no class loader) , is ClassType false , v.getClass class com.sun.tools.jdi.ArrayReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString "3" ,  v.type.name() java.lang.String , v.type.toString  class java.lang.String (no class loader) , is ClassType true , v.getClass class com.sun.tools.jdi.StringReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString "4" ,  v.type.name() java.lang.String , v.type.toString  class java.lang.String (no class loader) , is ClassType true , v.getClass class com.sun.tools.jdi.StringReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString 27 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 38 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 3 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString instance of java.util.HashMap(id=71) ,  v.type.name() java.util.HashMap , v.type.toString  class java.util.HashMap (no class loader) , is ClassType true , v.getClass class com.sun.tools.jdi.ObjectReferenceImpl, is ReferenceType true, value is ObjectReference true
+InterfaceType name java.util.Map
+InterfaceType name java.lang.Cloneable
+InterfaceType name java.io.Serializable
+InterfaceType name java.util.Map
+getValueString 362498820763181265 ,  v.type.name() long , v.type.toString  long , is ClassType false , v.getClass class com.sun.tools.jdi.LongValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 16 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 1073741824 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 0.75 ,  v.type.name() float , v.type.toString  float , is ClassType false , v.getClass class com.sun.tools.jdi.FloatValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 8 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 6 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 64 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 0 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 0 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 0 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 0.75 ,  v.type.name() float , v.type.toString  float , is ClassType false , v.getClass class com.sun.tools.jdi.FloatValueImpl, is ReferenceType false, value is ObjectReference false
+argument,( ("args" ( "0" "3")( "1" "4") ) ))
+local,( ("i" "27") ("j" "38") ("k" "3") ("hh" ( "serialVersionUID" "362498820763181265" )( "DEFAULT_INITIAL_CAPACITY" "16" )( "MAXIMUM_CAPACITY" "1073741824" )( "DEFAULT_LOAD_FACTOR" "0.75" )( "TREEIFY_THRESHOLD" "8" )( "UNTREEIFY_THRESHOLD" "6" )( "MIN_TREEIFY_CAPACITY" "64" )( "table" null )( "entrySet" null )( "size" "0" )( "modCount" "0" )( "threshold" "0" )( "loadFactor" "0.75" )( "keySet" null )( "valu
+
+Arguments
+| args | 0 | 3
+|  | 1 | 4es" null )) ))
+
+
+
+Locals

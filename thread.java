@@ -67,8 +67,8 @@ class thread
         
         // arguments
 
-        StringBuilder ab = new StringBuilder("argument");
-        StringBuilder lb = new StringBuilder("local");
+        StringBuilder ab = new StringBuilder();
+        StringBuilder lb = new StringBuilder();
 
         if (vars != null)
 
@@ -76,10 +76,11 @@ class thread
                 for (LocalVariable var : vars)
 
                     {
-                        String  s =  ","
+                        String  s =  " (\""
                             + var.name()
-                            + ","
-                            + ((values == null) ? "null" : debugger.getValueString(values.get(var)));
+                            + "\" "
+                            + ((values == null) ? "null" : debugger.getValueString(values.get(var)))
+                            +")";;
  
                         if (var.isArgument())
 
@@ -91,7 +92,7 @@ class thread
                     }
             }
         
-        return(ab.toString() + "\n" + lb.toString() + "\n");
+        return("argument,(" + ab.toString() + ")\nlocal,(" + lb.toString() + ")\n");
     }
 
     public String toString()
