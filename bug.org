@@ -400,6 +400,100 @@ Arguments
 | args | 0 | 3
 |  | 1 | 4es" null )) ))
 
+*** quit
+VMDisconnectEvent
+Exception,com.sun.jdi.VMDisconnectedException
+
+Process jdbProxy finished
 
 
 Locals
+** Starting debugger session Tue Nov 14 14:50:46 2017
+*** attach localhost 8000
+Debugger started
+attached,created virtual machine
+vmstart
+connected to java program
+*** prepare foo
+*** run
+classloaded,foo
+main class loaded
+*** break foo main
+*** continue
+breakpoint,thread,1,main,running,1,true,true,location,foo.java,8,main
+breakpoint in thread 1 at foo.java:8
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,9,main
+step in thread 1 at foo.java:9
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,10,main
+step in thread 1 at foo.java:10
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,16,main
+step in thread 1 at foo.java:16
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,18,main
+step in thread 1 at foo.java:18
+*** next 1
+step,thread,1,main,running,1,false,true,location,foo.java,19,main
+step in thread 1 at foo.java:19
+*** frame 1 0
+getValueString instance of java.lang.String[2] (id=70) ,  v.type.name() java.lang.String[] , v.type.toString  array class java.lang.String[] (no class loader) , is ClassType false , v.getClass class com.sun.tools.jdi.ArrayReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString "3" ,  v.type.name() java.lang.String , v.type.toString  class java.lang.String (no class loader) , is ClassType true , v.getClass class com.sun.tools.jdi.StringReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString "4" ,  v.type.name() java.lang.String , v.type.toString  class java.lang.String (no class loader) , is ClassType true , v.getClass class com.sun.tools.jdi.StringReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString 27 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 38 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 3 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString instance of java.util.ArrayList(id=71) ,  v.type.name() java.util.ArrayList , v.type.toString  class java.util.ArrayList (no class loader) , is ClassType true , v.getClass class com.sun.tools.jdi.ObjectReferenceImpl, is ReferenceType true, value is ObjectReference true
+InterfaceType name java.util.List
+that's a list
+InterfaceType name java.util.RandomAccess
+InterfaceType name java.lang.Cloneable
+InterfaceType name java.io.Serializable
+InterfaceType name java.util.Collection
+InterfaceType name java.lang.Iterable
+InterfaceType name java.util.List
+that's a list
+InterfaceType name java.util.Collection
+InterfaceType name java.lang.Iterable
+InterfaceType name java.util.Collection
+InterfaceType name java.lang.Iterable
+getValueString 8683452581122892189 ,  v.type.name() long , v.type.toString  long , is ClassType false , v.getClass class com.sun.tools.jdi.LongValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 10 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString instance of java.lang.Object[0] (id=85) ,  v.type.name() java.lang.Object[] , v.type.toString  array class java.lang.Object[] (no class loader) , is ClassType false , v.getClass class com.sun.tools.jdi.ArrayReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString instance of java.lang.Object[0] (id=87) ,  v.type.name() java.lang.Object[] , v.type.toString  array class java.lang.Object[] (no class loader) , is ClassType false , v.getClass class com.sun.tools.jdi.ArrayReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString instance of java.lang.Object[10] (id=88) ,  v.type.name() java.lang.Object[] , v.type.toString  array class java.lang.Object[] (no class loader) , is ClassType false , v.getClass class com.sun.tools.jdi.ArrayReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString "one" ,  v.type.name() java.lang.String , v.type.toString  class java.lang.String (no class loader) , is ClassType true , v.getClass class com.sun.tools.jdi.StringReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString 1 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 2147483639 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 1 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 2147483639 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+argument,( ("args" ( "0" "3")( "1" "4") ) ))
+local,( ("i" "27") ("j" "38") ("k" "3") ("as" ( "serialVersionUID" "8683452581122892189" )( "DEFAULT_CAPACITY" "10" )( "EMPTY_ELEMENTDATA"  )  )( "DEFAULTCAPACITY_EMPTY_ELEMENTDATA"  )  )( "elementData" ( "0" "one")( "1" null)( "2" null)( "3" null)( "4" null)( "5" null)( "6" null)( "7" null)( "8" null)( "9" null) )  )( "size" "1" )( "MAX_ARRAY_SIZE" "2147483639" )( "modCount" "1" )( "MAX_ARRAY_SIZE" "2147483639" )) ))
+
+
+
+Arguments
+| args | 0 | 3 |
+|      | 1 | 4 |
+
+Locals
+| i                                 |                27 |                     |
+| j                                 |                38 |                     |
+| k                                 |                 3 |                     |
+| as                                |  serialVersionUID | 8683452581122892189 |
+|                                   |  DEFAULT_CAPACITY |                  10 |
+|                                   | EMPTY_ELEMENTDATA |                     |
+| DEFAULTCAPACITY_EMPTY_ELEMENTDATA |                   |                     |
+*** quit
+VMDisconnectEvent
+Exception,com.sun.jdi.VMDisconnectedException
+
+Process jdbProxy finished
+** Starting debugger session Tue Nov 14 15:04:22 2017
+*** attach localhost 8000
+Debugger started
+attached,created virtual machine
+vmstart
+connected to java program
+*** prepare foo

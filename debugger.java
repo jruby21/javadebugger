@@ -19,6 +19,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.BufferedReader;
 
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
  
@@ -432,11 +434,11 @@ public class debugger
         return null;
     }
 
-    public static String getValueString (Value v)
+    public static String getValueString (ThreadReference tr, Value v)
     {
         if (v == null)
 
-            return "null";
+            return "\"null\"";
 
         System.out.println("getValueString " + v.toString() + " ,  v.type.name() " + v.type().name() + " , v.type.toString  " + v.type().toString() + " , is ClassType " + (v.type() instanceof ClassType) + " , v.getClass " + v.getClass() + ", is ReferenceType " + (v.type() instanceof ReferenceType) + ", value is ObjectReference " + (v instanceof ObjectReference));
 
@@ -460,9 +462,8 @@ public class debugger
                 
                 for (int i = 0; i < len; i++)
                     
-                    b = b.append("( \"" + i + "\" " + getValueString(av.getValue(i)) + ")");
+                    b = b.append("( \"" + i + "\" " + getValueString(tr, av.getValue(i)) + ")");
                 
-                b.append(" ) ");
                 return b.toString();
             }
 
@@ -478,6 +479,30 @@ public class debugger
 
                     {
                         System.out.println("InterfaceType name " + i.name());
+
+                        if (i.name().equals("java.util.List"))
+
+                            {
+                                List<Method> mt = ((ReferenceType) v.type()).methodsByName("get");
+                                for (Method m : mt)
+
+                                    {
+                                        try {
+                                            ArrayList<Value> alv = new ArrayList<Value> ();
+                                            alv.add(tr.virtualMachine().mirrorOf(0));
+                                            Value vv = ((ObjectReference) v).invokeMethod(tr, m,  alv, 0);
+                                            System.out.println("list method names " + m.name() + " " + getValueString(tr, vv));
+                                        } catch (InvalidTypeException ex) {
+                                            System.out.println("error,InvalidTypeException in getValueString " + ex.toString());
+                                        } catch (ClassNotLoadedException ce) {
+                                            System.out.println("error,ClassNotLoaded in getValueString " + ce.toString());
+                                        } catch (IncompatibleThreadStateException ie) {
+                                            System.out.println("error,IncompatibleThreadStateException in getValueString " + ie.toString());
+                                        } catch (InvocationException te) {
+                                            System.out.println("error,InvocationException in getValueString " + te.toString());
+                                        }
+                                    } 
+                            }
                     }
                 
                 for (Field f : fld)
@@ -485,7 +510,7 @@ public class debugger
                     b = b.append("( \""
                                  + f.name()
                                  + "\" "
-                                 + getValueString(((ObjectReference) v).getValue(f))
+                                 + getValueString(tr, ((ObjectReference) v).getValue(f))
                                  + " )");
                 
                 b.append(") ");
@@ -500,5 +525,154 @@ public class debugger
 
         return "";
     }
-}
+
+    private static Value remoteMethod (String name)
+    {
+        List<Method> mt = ((ReferenceType) v.type()).methodsByName(name);
+
+        for (Method m : mt)
+
+            {
+                try {
+                    ArrayList<Value> alv = new ArrayList<Value> ();
+                    alv.add(tr.virtualMachine().mirrorOf(0));
+                    Value vv = ((ObjectReference) v).invokeMethod(tr, m,  alv, 0);
+                    System.out.println("list method names " + m.name() + " " + getValueString(tr, vv));
+                } catch (InvalidTypeException ex) {
+                    System.out.println("error,InvalidTypeException in getValueString " + ex.toString());
+                } catch (ClassNotLoadedException ce) {
+                    System.out.println("error,ClassNotLoaded in getValueString " + ce.toString());
+                } catch (IncompatibleThreadStateException ie) {
+                    System.out.println("error,IncompatibleThreadStateException in getValueString " + ie.toString());
+                } catch (InvocationException te) {
+                    System.out.println("error,InvocationException in getValueString " + te.toString());
+                }
+            }
+
+        return null;
+    }
+
+    
+ //    private Method findMethod(List<Method> methods, List<Value> arguments)
+ //    { 
+ //        Method m = null
+        
+ //        for (Method mm : methods)
+
+ //            { 
+ //                List<Type> argumentTypes; 
+
+ //                try { 
+ //                    argumentTypes = mm.argumentTypes(); 
+ //                } catch (ClassNotLoadedException e) { 
+ //                    continue; 
+ //                } 
+ 
+ //                ARGUMENT_MATCHING argumentMatching = argumentsMatching(argumentTypes, arguments); 
+
+ //                if (argumentMatching == ARGUMENT_MATCHING.MATCH)
+
+ //                    return mm;
+
+ //                if (argumentMatching == ARGUMENT_MATCHING.ASSIGNABLE)
+
+ //                    { 
+ //                        if (m == null) { 
+ //                            m = mm; 
+ //                        } else { 
+ //                            System.out.println("error,Multiple methods with name " + mm.name() + " matched to specified arguments. ");
+ //                            return null;
+ //                        } 
+ //                    } 
+ //            }
+        
+ //        return m; 
+ //    }
+     
+ //    private ARGUMENT_MATCHING argumentsMatching(List<Type> argumentTypes, List<Value> arguments) { 
+
+ //        if (argumentTypes.size() != arguments.size())
+
+ //            return ARGUMENT_MATCHING.NOT_MATCH;
+        
+ //        Iterator<Value> argumentIterator = arguments.iterator(); 
+ //        Iterator<Type> argumentTypesIterator = argumentTypes.iterator(); 
+ //        ARGUMENT_MATCHING result = ARGUMENT_MATCHING.MATCH; 
+
+ //        while (argumentIterator.hasNext() && result != ARGUMENT_MATCHING.NOT_MATCH)
+
+ //            { 
+ //                Value argumentValue = argumentIterator.next(); 
+ //                Type argumentType   = argumentTypesIterator.next(); 
+
+ //                if (argumentValue == null && isPrimitive(argumentType))
+ //                        // Null may not be used as value if argument type is primitive. 
+ //                    return ARGUMENT_MATCHING.NOT_MATCH; 
+
+ //                if (argumentValue != null && !(argumentValue.type().equals(argumentType)))
+
+ //                    { 
+ //                        if (!isAssignable(argumentValue.type(), argumentType)) 
+
+ //                            return ARGUMENT_MATCHING.NOT_MATCH;
+
+ //                        result = ARGUMENT_MATCHING.ASSIGNABLE;
+ //                    } 
+ //            } 
+
+ //        return result; 
+ //    } 
+ 
+ //    private boolean isAssignable(Type from, Type to) { 
+
+ //        if (from.equals(to))                     return true; 
+ //        if (from instanceof BooleanType)  return to instanceof BooleanType; 
+ //        if (to instanceof BooleanType)      return false; 
+ //        if (from instanceof PrimitiveType)  return to instanceof PrimitiveType; 
+ //        if (to instanceof PrimitiveType)     return false; 
+ 
+ //        if (from instanceof ArrayType) { 
+ //            if (to instanceof ArrayType) { 
+ //                Type fromArrayComponent; 
+ //                Type toArrayComponent; 
+ //                try { 
+ //                    fromArrayComponent = ((ArrayType)from).componentType(); 
+ //                    toArrayComponent = ((ArrayType)to).componentType(); 
+ //                } catch (ClassNotLoadedException e) { 
+ //                    return false; 
+ //                } 
+ //                if (fromArrayComponent instanceof PrimitiveType) { 
+ //                    return fromArrayComponent.equals(toArrayComponent); 
+ //                } 
+ //                return !(toArrayComponent instanceof PrimitiveType) && isAssignable(fromArrayComponent, toArrayComponent); 
+ //            } 
+ //            return to.name().equals("java.lang.Object"); 
+ //        } 
+
+ //        if (from instanceof ClassType) { 
+ //            ClassType superClass = ((ClassType)from).superclass(); 
+ //            if (superClass != null && isAssignable(superClass, to)) { 
+ //                return true; 
+ //            } 
+ //            for (InterfaceType interfaceType : ((ClassType)from).interfaces()) { 
+ //                if (isAssignable(interfaceType, to)) { 
+ //                    return true; 
+ //                } 
+ //            } 
+ //        } 
+        
+ //        for (InterfaceType interfaceType : ((InterfaceType)from).subinterfaces()) { 
+ //            if (isAssignable(interfaceType, to)) { 
+ //                return true; 
+ //            } 
+ //        } 
+ 
+ //        return false; 
+ //    }
+
+ // private enum ARGUMENT_MATCHING { 
+ //        MATCH, ASSIGNABLE, NOT_MATCH 
+    //    } 
+ }
+
 

@@ -79,7 +79,7 @@ class thread
                         String  s =  " (\""
                             + var.name()
                             + "\" "
-                            + ((values == null) ? "null" : debugger.getValueString(values.get(var)))
+                            + ((values == null) ? "null" : debugger.getValueString(tr, values.get(var)))
                             +")";;
  
                         if (var.isArgument())
