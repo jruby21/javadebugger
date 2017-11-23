@@ -455,10 +455,14 @@ public class debugger
         if (v instanceof ArrayReference)
 
             {
-                StringBuilder     b  = new StringBuilder();
-                ArrayReference av = (ArrayReference) v;
+                StringBuilder     b   = new StringBuilder();
+                ArrayReference av  = (ArrayReference) v;
+                int                  len = (av.length() > 20 ? 20 : av.length());
 
-                int len = (av.length() > 20 ? 20 : av.length());
+                b = b.append("( \"type\" \"array\" )");
+                b = b.append("( \"size\" \"" + Integer.toString(av.length()) + "\") ");
+
+                if (len > 20) len = 20;
                 
                 for (int i = 0; i < len; i++)
                     
@@ -470,38 +474,130 @@ public class debugger
         if ((v.type() instanceof ReferenceType) && (v.type() instanceof ClassType))
 
             {
-                StringBuilder b  = new StringBuilder();
-                List<Field>	 fld = ((ClassType) v.type()).allFields();
-
-                List<InterfaceType>  it = ((ClassType)  v.type()).allInterfaces();
+                StringBuilder            b  = new StringBuilder();
+                List<Field>	            fld = ((ClassType) v.type()).allFields();
+                List<InterfaceType>  it   = ((ClassType)  v.type()).allInterfaces();
 
                 for (InterfaceType i : it)
 
                     {
-                        System.out.println("InterfaceType name " + i.name());
-
                         if (i.name().equals("java.util.List"))
 
                             {
-                                List<Method> mt = ((ReferenceType) v.type()).methodsByName("get");
-                                for (Method m : mt)
+                                b = b.append("( \"type\" \"List\" )");
+
+                                ArrayList<Value> alv = new ArrayList<Value> ();
+                                Value                vv  = invokeRemoteMethod(tr,
+                                                                                             ((ObjectReference) v),
+                                                                                             remoteMethod (((ReferenceType) v.type()), "size", alv),
+                                                                                             alv);
+                                int                    sz  = ((IntegerValue) vv).value();
+
+                                b = b.append("( \"size\" \"" + Integer.toString(sz) + "\")");
+                                if (sz > 20) sz = 20;
+
+                                alv.add(tr.virtualMachine().mirrorOf(0));
+
+                                Method m = remoteMethod(((ReferenceType) v.type()), "get", alv);
+
+                                if (m != null)
 
                                     {
-                                        try {
-                                            ArrayList<Value> alv = new ArrayList<Value> ();
-                                            alv.add(tr.virtualMachine().mirrorOf(0));
-                                            Value vv = ((ObjectReference) v).invokeMethod(tr, m,  alv, 0);
-                                            System.out.println("list method names " + m.name() + " " + getValueString(tr, vv));
-                                        } catch (InvalidTypeException ex) {
-                                            System.out.println("error,InvalidTypeException in getValueString " + ex.toString());
-                                        } catch (ClassNotLoadedException ce) {
-                                            System.out.println("error,ClassNotLoaded in getValueString " + ce.toString());
-                                        } catch (IncompatibleThreadStateException ie) {
-                                            System.out.println("error,IncompatibleThreadStateException in getValueString " + ie.toString());
-                                        } catch (InvocationException te) {
-                                            System.out.println("error,InvocationException in getValueString " + te.toString());
-                                        }
-                                    } 
+                                        for (int j = 0; j != sz; j++)
+
+                                            {
+                                                alv.clear();
+                                                alv.add(tr.virtualMachine().mirrorOf(j));
+                                                b = b.append("( \""
+                                                             + j
+                                                             + "\" "
+                                                             + getValueString(tr,
+                                                                              invokeRemoteMethod (tr, ((ObjectReference) v), m, alv))
+                                                             + ")");
+                                            }
+                                    }
+                                
+                                return b.toString();
+                            }
+
+                        if (i.name().equals("java.util.Map"))
+
+                            {
+                                b = b.append("( \"type\" \"Map\" )");
+
+                                ArrayList<Value> emptyList = new ArrayList<Value> ();
+                                Value                vv  = invokeRemoteMethod(tr,
+                                                                                             ((ObjectReference) v),
+                                                                                             remoteMethod (((ReferenceType) v.type()), "size", emptyList),
+                                                                                             emptyList);
+
+                                if (vv != null)
+
+                                    {
+                                        int                    sz  = ((IntegerValue) vv).value();
+
+                                        b = b.append("( \"size\" \"" + Integer.toString(sz) + "\")");
+
+                                        if (sz != 0)
+
+                                            {
+                                                if (sz > 20) sz = 20;
+
+                                                // set of map's keys
+                                        
+                                                vv  = invokeRemoteMethod(tr,
+                                                                         ((ObjectReference) v),
+                                                                         remoteMethod (((ReferenceType) v.type()), "keySet", emptyList),
+                                                                         emptyList);
+
+                                                if (vv != null)
+
+                                                    {
+                                                        // keysIterator is an iterator of the set of keys
+                                                
+                                                        Value keysIterator  = invokeRemoteMethod(tr,
+                                                                                                 ((ObjectReference) vv),
+                                                                                                 remoteMethod (((ReferenceType) vv.type()), "iterator", emptyList),
+                                                                                                 emptyList);
+
+                                                        if (keysIterator != null)
+
+                                                            {
+                                                                Method             next  = remoteMethod (((ReferenceType) keysIterator.type()), "next", emptyList);
+                                                                Value                key   = (next == null) ? null : invokeRemoteMethod(tr, ((ObjectReference) keysIterator), next, emptyList);
+                                                                ArrayList<Value> keyList    = new ArrayList<Value> ();
+
+                                                                keyList.add(key);
+
+                                                                Method              get   = (key == null) ? null : remoteMethod (((ReferenceType) v.type()), "get", keyList);
+                                                                Value                entry = (get == null) ? null : invokeRemoteMethod(tr, ((ObjectReference) v), get, keyList);
+
+                                                                for (int j = 0;
+                                                                     j != sz && entry != null;
+                                                                     j++)
+
+                                                                    {
+                                                                        b.append("( "
+                                                                                 + getValueString(tr, key)
+                                                                                 + " "
+                                                                                 + getValueString(tr, entry)
+                                                                                 + " )");
+
+                                                                        if (j != (sz - 1))
+
+                                                                            {
+                                                                                key   = invokeRemoteMethod(tr, ((ObjectReference) keysIterator), next, emptyList);
+                                                                                keyList.clear();
+                                                                                keyList.add(key);                                                                                
+                                                                                entry = (key == null) ? null : invokeRemoteMethod(tr, ((ObjectReference) v), get, keyList);
+                                                                            }
+                                                                    }
+                                                            }
+                                                    }
+                                            }
+                                    }
+
+                                return b.toString();
                             }
                     }
                 
@@ -526,153 +622,150 @@ public class debugger
         return "";
     }
 
-    private static Value remoteMethod (String name)
+    private static Method remoteMethod (ReferenceType r, String name, List<Value> arguments)
     {
-        List<Method> mt = ((ReferenceType) v.type()).methodsByName(name);
-
-        for (Method m : mt)
-
-            {
-                try {
-                    ArrayList<Value> alv = new ArrayList<Value> ();
-                    alv.add(tr.virtualMachine().mirrorOf(0));
-                    Value vv = ((ObjectReference) v).invokeMethod(tr, m,  alv, 0);
-                    System.out.println("list method names " + m.name() + " " + getValueString(tr, vv));
-                } catch (InvalidTypeException ex) {
-                    System.out.println("error,InvalidTypeException in getValueString " + ex.toString());
-                } catch (ClassNotLoadedException ce) {
-                    System.out.println("error,ClassNotLoaded in getValueString " + ce.toString());
-                } catch (IncompatibleThreadStateException ie) {
-                    System.out.println("error,IncompatibleThreadStateException in getValueString " + ie.toString());
-                } catch (InvocationException te) {
-                    System.out.println("error,InvocationException in getValueString " + te.toString());
-                }
-            }
+        try {
+            return findMethod(r.methodsByName(name), arguments);
+        } catch (ClassNotLoadedException ce) {
+            System.out.println("error,ClassNotLoaded in getValueString " + ce.toString());
+        }
 
         return null;
     }
-
     
- //    private Method findMethod(List<Method> methods, List<Value> arguments)
- //    { 
- //        Method m = null
+    private static Value invokeRemoteMethod (ThreadReference tr, ObjectReference o, Method m, List<Value> arguments)
+    {
+        try {
+            return (m == null) ? null : o.invokeMethod(tr, m,  arguments, 0);
+        } catch (InvalidTypeException ex) {
+            System.out.println("error,InvalidTypeException in getValueString " + ex.toString());
+        } catch (ClassNotLoadedException ce) {
+            System.out.println("error,ClassNotLoaded in getValueString " + ce.toString());
+        } catch (IncompatibleThreadStateException ie) {
+            System.out.println("error,IncompatibleThreadStateException in getValueString " + ie.toString());
+        } catch (InvocationException te) {
+            System.out.println("error,InvocationException in getValueString " + te.toString());
+        }
+    
+        return null;
+    }
+    
+     private static Method findMethod(List<Method> methods, List<Value> arguments) throws ClassNotLoadedException
+     { 
+         Method m = null;
         
- //        for (Method mm : methods)
+         for (Method mm : methods)
 
- //            { 
- //                List<Type> argumentTypes; 
+             { 
+                 List<Type>                   argumentTypes     = mm.argumentTypes(); 
+                 ARGUMENT_MATCHING argumentMatching = argumentsMatching(argumentTypes, arguments); 
 
- //                try { 
- //                    argumentTypes = mm.argumentTypes(); 
- //                } catch (ClassNotLoadedException e) { 
- //                    continue; 
- //                } 
- 
- //                ARGUMENT_MATCHING argumentMatching = argumentsMatching(argumentTypes, arguments); 
+                 if (argumentMatching == ARGUMENT_MATCHING.MATCH)
 
- //                if (argumentMatching == ARGUMENT_MATCHING.MATCH)
+                     return mm;
 
- //                    return mm;
+                 if (argumentMatching == ARGUMENT_MATCHING.ASSIGNABLE)
 
- //                if (argumentMatching == ARGUMENT_MATCHING.ASSIGNABLE)
+                     { 
+                         if (m != null)
 
- //                    { 
- //                        if (m == null) { 
- //                            m = mm; 
- //                        } else { 
- //                            System.out.println("error,Multiple methods with name " + mm.name() + " matched to specified arguments. ");
- //                            return null;
- //                        } 
- //                    } 
- //            }
+                             { 
+                                 System.out.println("error,Multiple methods with name " + mm.name() + " matched to specified arguments. ");
+                                 return null;
+                             }
+
+                         m = mm;
+                     } 
+             }
         
- //        return m; 
- //    }
-     
- //    private ARGUMENT_MATCHING argumentsMatching(List<Type> argumentTypes, List<Value> arguments) { 
+         return m; 
+     }
+    
+    private enum ARGUMENT_MATCHING { 
+        MATCH, ASSIGNABLE, NOT_MATCH 
+    } 
 
- //        if (argumentTypes.size() != arguments.size())
+     private static ARGUMENT_MATCHING argumentsMatching(List<Type> argumentTypes, List<Value> arguments) throws ClassNotLoadedException
+    { 
+         if (argumentTypes.size() != arguments.size())
 
- //            return ARGUMENT_MATCHING.NOT_MATCH;
+             return ARGUMENT_MATCHING.NOT_MATCH;
         
- //        Iterator<Value> argumentIterator = arguments.iterator(); 
- //        Iterator<Type> argumentTypesIterator = argumentTypes.iterator(); 
- //        ARGUMENT_MATCHING result = ARGUMENT_MATCHING.MATCH; 
+         Iterator<Value> argumentIterator = arguments.iterator(); 
+         Iterator<Type> argumentTypesIterator = argumentTypes.iterator(); 
+         ARGUMENT_MATCHING result = ARGUMENT_MATCHING.MATCH; 
 
- //        while (argumentIterator.hasNext() && result != ARGUMENT_MATCHING.NOT_MATCH)
+         while (argumentIterator.hasNext())
 
- //            { 
- //                Value argumentValue = argumentIterator.next(); 
- //                Type argumentType   = argumentTypesIterator.next(); 
+             { 
+                 Value argumentValue = argumentIterator.next(); 
+                 Type argumentType   = argumentTypesIterator.next(); 
 
- //                if (argumentValue == null && isPrimitive(argumentType))
- //                        // Null may not be used as value if argument type is primitive. 
- //                    return ARGUMENT_MATCHING.NOT_MATCH; 
+                 if (argumentValue == null && argumentType instanceof PrimitiveValue)
 
- //                if (argumentValue != null && !(argumentValue.type().equals(argumentType)))
+                     return ARGUMENT_MATCHING.NOT_MATCH; 
 
- //                    { 
- //                        if (!isAssignable(argumentValue.type(), argumentType)) 
+                 if (argumentValue != null
+                     && !(argumentValue.type().equals(argumentType))
+                     && !isAssignable(argumentValue.type(), argumentType))
 
- //                            return ARGUMENT_MATCHING.NOT_MATCH;
+                     return ARGUMENT_MATCHING.NOT_MATCH;
 
- //                        result = ARGUMENT_MATCHING.ASSIGNABLE;
- //                    } 
- //            } 
+                 if (argumentValue != null
+                     && !(argumentValue.type().equals(argumentType)))
 
- //        return result; 
- //    } 
+                     result = ARGUMENT_MATCHING.ASSIGNABLE;
+             } 
+
+         return result; 
+     } 
  
- //    private boolean isAssignable(Type from, Type to) { 
-
- //        if (from.equals(to))                     return true; 
- //        if (from instanceof BooleanType)  return to instanceof BooleanType; 
- //        if (to instanceof BooleanType)      return false; 
- //        if (from instanceof PrimitiveType)  return to instanceof PrimitiveType; 
- //        if (to instanceof PrimitiveType)     return false; 
- 
- //        if (from instanceof ArrayType) { 
- //            if (to instanceof ArrayType) { 
- //                Type fromArrayComponent; 
- //                Type toArrayComponent; 
- //                try { 
- //                    fromArrayComponent = ((ArrayType)from).componentType(); 
- //                    toArrayComponent = ((ArrayType)to).componentType(); 
- //                } catch (ClassNotLoadedException e) { 
- //                    return false; 
- //                } 
- //                if (fromArrayComponent instanceof PrimitiveType) { 
- //                    return fromArrayComponent.equals(toArrayComponent); 
- //                } 
- //                return !(toArrayComponent instanceof PrimitiveType) && isAssignable(fromArrayComponent, toArrayComponent); 
- //            } 
- //            return to.name().equals("java.lang.Object"); 
- //        } 
-
- //        if (from instanceof ClassType) { 
- //            ClassType superClass = ((ClassType)from).superclass(); 
- //            if (superClass != null && isAssignable(superClass, to)) { 
- //                return true; 
- //            } 
- //            for (InterfaceType interfaceType : ((ClassType)from).interfaces()) { 
- //                if (isAssignable(interfaceType, to)) { 
- //                    return true; 
- //                } 
- //            } 
- //        } 
+    private static boolean isAssignable(Type from, Type to) throws ClassNotLoadedException
+    {
+        if (from.equals(to))                     return true; 
+        if (from instanceof BooleanType)  return to instanceof BooleanType; 
+        if (to instanceof BooleanType)      return false; 
+        if (from instanceof PrimitiveType)  return to instanceof PrimitiveType; 
+        if (to instanceof PrimitiveType)     return false; 
         
- //        for (InterfaceType interfaceType : ((InterfaceType)from).subinterfaces()) { 
- //            if (isAssignable(interfaceType, to)) { 
- //                return true; 
- //            } 
- //        } 
- 
- //        return false; 
- //    }
+        if (from instanceof ArrayType && !(to instanceof ArrayType))
+            
+            return to.name().equals("java.lang.Object");
+        
+        if (from instanceof ArrayType)
 
- // private enum ARGUMENT_MATCHING { 
- //        MATCH, ASSIGNABLE, NOT_MATCH 
-    //    } 
+            { 
+                Type fromArrayComponent = ((ArrayType)from).componentType(); 
+                Type toArrayComponent    = ((ArrayType)to).componentType(); 
+                
+                if (fromArrayComponent instanceof PrimitiveType)  return fromArrayComponent.equals(toArrayComponent); 
+
+                return !(toArrayComponent instanceof PrimitiveType) && isAssignable(fromArrayComponent, toArrayComponent); 
+            } 
+
+        if (from instanceof ClassType)
+
+            {
+                ClassType superClass = ((ClassType)from).superclass(); 
+            
+                if (superClass != null && isAssignable(superClass, to))  return true; 
+
+                for (InterfaceType interfaceType : ((ClassType)from).interfaces()) { 
+                    if (isAssignable(interfaceType, to)) return true;
+                } 
+            }
+
+        if (from instanceof InterfaceType)
+
+            {
+                for (InterfaceType interfaceType : ((InterfaceType)from).subinterfaces()) { 
+                
+                    if (isAssignable(interfaceType, to)) return true;
+                } 
+            } 
+ 
+        return false; 
+    }
  }
 
 
