@@ -564,13 +564,13 @@ public class debugger
 
                                                             {
                                                                 Method             next  = remoteMethod (((ReferenceType) keysIterator.type()), "next", emptyList);
-                                                                Value                key   = (next == null) ? null : invokeRemoteMethod(tr, ((ObjectReference) keysIterator), next, emptyList);
+                                                                Value                key  = invokeRemoteMethod(tr, ((ObjectReference) keysIterator), next, emptyList);
                                                                 ArrayList<Value> keyList    = new ArrayList<Value> ();
 
                                                                 keyList.add(key);
 
                                                                 Method              get   = (key == null) ? null : remoteMethod (((ReferenceType) v.type()), "get", keyList);
-                                                                Value                entry = (get == null) ? null : invokeRemoteMethod(tr, ((ObjectReference) v), get, keyList);
+                                                                Value                entry = invokeRemoteMethod(tr, ((ObjectReference) v), get, keyList);
 
                                                                 for (int j = 0;
                                                                      j != sz && entry != null;
