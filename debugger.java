@@ -38,7 +38,7 @@ public class debugger
         
     void go(InputStream input) throws Exception
     {
-        System.out.println("Debugger started");
+        System.out.println("proxy started");
         BufferedReader in = new BufferedReader(new InputStreamReader(input));
 
         for (String s = in.readLine();
@@ -86,10 +86,6 @@ public class debugger
 
                             attach(hostname, port);
                         
-                        break;
-
-                    case CONTINUE:
-                        vm.resume();
                         break;
 
                     case NEXT:
@@ -210,6 +206,7 @@ public class debugger
                                     
                                     br = vm.eventRequestManager().createBreakpointRequest(bl);
 
+                                System.out.println("breakpoint created at " + bl.toString());
                                 br.enable();
 
                             } catch (NumberFormatException e) {
@@ -226,7 +223,7 @@ public class debugger
 
 
                     case PREPARE:
-                        
+
                         if (vm == null)
 
                             System.out.println("error,no virtual machine");
@@ -238,6 +235,7 @@ public class debugger
                         else
 
                             {
+                                System.out.println("prepare class " + parse.getString());
                                 ClassPrepareRequest r = vm.eventRequestManager().createClassPrepareRequest();
                                 r.addClassFilter(parse.getString());
                                 r.enable();
@@ -245,7 +243,7 @@ public class debugger
 
                         break;
                         
-
+                    case CONTINUE:
                     case RUN:
 
                         if (vm == null)
@@ -254,7 +252,10 @@ public class debugger
 
                         else
 
-                            vm.resume();
+                            {
+                                System.out.println("resuming target program");
+                                vm.resume();
+                            }
 
                         break;
 
@@ -459,15 +460,18 @@ public class debugger
                 ArrayReference av  = (ArrayReference) v;
                 int                  len = (av.length() > 20 ? 20 : av.length());
 
-                b = b.append("( \"type\" \"array\" )");
-                b = b.append("( \"size\" \"" + Integer.toString(av.length()) + "\") ");
-
-                if (len > 20) len = 20;
+                b.append("( \"type\" \"array\" )");
+                b.append("( \"size\" \"" + Integer.toString(av.length()) + "\") ");
                 
+                if (len > 20) len = 20;
+
+                b.append("( \"contents\" ");
+
                 for (int i = 0; i < len; i++)
                     
                     b = b.append("( \"" + i + "\" " + getValueString(tr, av.getValue(i)) + ")");
-                
+
+                b.append(" ) ");
                 return b.toString();
             }
 
@@ -503,6 +507,8 @@ public class debugger
                                 if (m != null)
 
                                     {
+                                        b.append("( \"contents\" ");
+                                        
                                         for (int j = 0; j != sz; j++)
 
                                             {
@@ -515,6 +521,8 @@ public class debugger
                                                                               invokeRemoteMethod (tr, ((ObjectReference) v), m, alv))
                                                              + ")");
                                             }
+
+                                        b.append(" ) ");
                                     }
                                 
                                 return b.toString();
@@ -572,6 +580,8 @@ public class debugger
                                                                 Method              get   = (key == null) ? null : remoteMethod (((ReferenceType) v.type()), "get", keyList);
                                                                 Value                entry = invokeRemoteMethod(tr, ((ObjectReference) v), get, keyList);
 
+                                                                b.append("( \"contents\" ");
+
                                                                 for (int j = 0;
                                                                      j != sz && entry != null;
                                                                      j++)
@@ -592,6 +602,8 @@ public class debugger
                                                                                 entry = (key == null) ? null : invokeRemoteMethod(tr, ((ObjectReference) v), get, keyList);
                                                                             }
                                                                     }
+
+                                                                b.append(")");
                                                             }
                                                     }
                                             }
@@ -767,5 +779,3 @@ public class debugger
         return false; 
     }
  }
-
-

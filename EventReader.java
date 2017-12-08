@@ -79,7 +79,7 @@ class EventReader extends Thread
                             System.out.println("threaddeath."
                                                + (new thread(((ThreadStartEvent) event).thread())).toString());
                         } else if (event instanceof VMStartEvent) {
-                            System.out.println("vmstart");
+                            System.out.println("virtual machine started");
                         } else {
                             ;
                         }
