@@ -17,84 +17,63 @@ class thread
     
     public String frame(int frameNumber)
     {
-        StackFrame                frame  = null;
-        Location                  loc    = null;
-        List<LocalVariable>       vars   = null;
-        Map<LocalVariable, Value> values = null;
-        StringBuilder             sb     = new StringBuilder("frame,"
-                                                             + frameNumber);
+        Frame                f = getFrame(frameNumber);
 
-        if (!tr.isSuspended())
+        if (f.error != null)
 
-            return("error,thread " + tr.uniqueID() + " not suspended\n");
-
-        try {
-            int framecount = tr.frameCount();
-
-            if (frameNumber < 0 || frameNumber >= framecount)
-
-                return("error,no frame number " + frameNumber + " in thread " + tr.uniqueID() + "\n");
-
-            sb.append("," + framecount +  "\n");
-
-            frame = tr.frame(frameNumber);
-
-            if (frame == null)
-        
-                return("error,no frame number " + frameNumber + " in thread " + tr.uniqueID() + "\n");
-
-            loc = frame.location();
-
-            if (loc != null)
-
-                sb.append((new location(loc)).toString());
-
-            vars   = frame.visibleVariables();
-            values = frame.getValues(vars);
-        } catch (InvalidStackFrameException e)  {
-            return("error thread " + tr.uniqueID() + " not suspended\n");
-        } catch (IncompatibleThreadStateException e) {
-            return("error thread " + tr.uniqueID() + " not suspended\n");
-        } catch (IndexOutOfBoundsException e) {
-            return("error no frame number " + frameNumber + " in thread " + tr.uniqueID() + "\n");
-        } catch (AbsentInformationException e) {
-            sb.append("error values missing in frame " + frameNumber + " in thread  " + tr.uniqueID() + "\n");
-            return(sb.toString());
-        } catch (NativeMethodException e) {
-            sb.append("error native method in frame " + frameNumber + " in thread  " + tr.uniqueID() + "\n");
-            return(sb.toString());
-        }
+            return f.error;
         
         // arguments
 
         StringBuilder ab = new StringBuilder();
         StringBuilder lb = new StringBuilder();
 
-        if (vars != null)
+        if (f.vars != null)
 
             {
-                for (LocalVariable var : vars)
+                for (LocalVariable var : f.vars)
 
                     {
-                        String  s =  " (\""
+                        StringBuilder b = (var.isArgument()) ? ab : lb;
+
+                        b.append(" (\""
                             + var.name()
                             + "\" "
-                            + ((values == null) ? "null" : debugger.getValueString(tr, values.get(var)))
-                            +")";;
- 
-                        if (var.isArgument())
-
-                            ab.append(s);
-
-                        else
-
-                            lb.append(s);
+                            + ((f.values == null) ? "null" : debugger.getValueString(tr, f.values.get(var)))
+                                 +")");
                     }
             }
-        
-        return("argument,(" + ab.toString() + ")\nlocal,(" + lb.toString() + ")\n");
+
+        return "frame,"
+            + frameNumber
+            + ",thread,"
+            + tr.uniqueID()
+            + ","
+            + ((f.loc != null) ? (new location(f.loc)).toString() : "location,none")
+            + "\nargument,("
+            + ab.toString()
+            + ")\nlocal,("
+            + lb.toString() + ")\n";
     }
 
+    public String stack()
+    {
+        StringBuilder  b = new StringBuilder("stack," + tr.uniqueID());
+        Frame          f  = null;
+        int              i = 0;
+
+        for (f = getFrame(i);
+             f.error == null;
+             f = getFrame(i))
+
+            {
+                b.append("," + ((f.loc != null) ? (new location(f.loc)).toString() : "location,none"));
+                i++;
+            }
+
+        return (i == 0 && f.error != null) ? f.error : b.toString();
+    }
+    
     public String toString()
     {
         StringBuilder b = new StringBuilder("thread,"
@@ -151,4 +130,58 @@ class thread
             + ","
             + tr.isSuspended();
     }
+
+    class Frame
+    {
+        int                                  frameNumber = 0;
+        Location                          loc        = null;
+        List<LocalVariable>           vars       = null;
+        Map<LocalVariable, Value> values     = null;
+        String                            error       = null;
+    }
+
+    private Frame getFrame(int fn)
+        {
+            Frame          fr = new Frame();
+
+            if (!tr.isSuspended())
+
+                fr.error = "error,not suspended,thread," + tr.uniqueID();
+
+            else
+
+                {
+                    try
+                        {
+                            int              framecount = tr.frameCount();
+                            StackFrame  sf             = null;
+
+                            if (fn < 0 || fn >= framecount)
+
+                                fr.error = "error,no frame number, " + fn + ",thread," + tr.uniqueID();
+
+                            else if (null == (sf = tr.frame(fn)))
+
+                                fr.error = "error,no frame," + fn + ",thread," + tr.uniqueID();
+
+                            else
+
+                                {
+                                    fr.loc = sf.location();
+                                    fr.vars   = sf.visibleVariables();
+                                    if (fr.vars != null) fr.values = sf.getValues(fr.vars);
+                                }
+                        } catch (InvalidStackFrameException e)  {
+                        fr.error = "error,not suspended,thread," + tr.uniqueID();
+                    } catch (IncompatibleThreadStateException e) {
+                        fr.error = "error,not suspended,thread," + tr.uniqueID();;
+                    } catch (IndexOutOfBoundsException e) {
+                        fr.error = "error,no frame number, " + fn + ",thread," + tr.uniqueID();
+                    } catch (AbsentInformationException e) {
+                        ;
+                    }
+                }
+            
+            return fr;
+        }
 }

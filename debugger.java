@@ -65,9 +65,6 @@ public class debugger
                 switch (parse.next())
                     
                     {
-                    case DONE:
-                        return;
-
                     case ATTACH:
 
                         tok0     = parse.next();
@@ -86,20 +83,6 @@ public class debugger
 
                             attach(hostname, port);
                         
-                        break;
-
-                    case NEXT:
-
-                        if (parse.next() == parser.TOKEN.STRING)
-
-                            step(parse.getString(),
-                                 StepRequest.STEP_LINE,
-                                 StepRequest.STEP_OVER);
-                                    
-                        else
-
-                            System.out.println("error,missing thread-id");
-
                         break;
 
                     case INTO:
@@ -217,10 +200,47 @@ public class debugger
 
                         break;
                         
-                    case QUIT:
-                        vm.exit(0);
-                        System.exit(0);
+                    case FRAME:
 
+                        tok0           = parse.next();
+                        tr                = getThread(parse.getString());
+                        tok1           = parse.next();
+                        frameid     = parse.getString();
+                        
+                        if (tok0 != parser.TOKEN.STRING
+                            ||  tok1 != parser.TOKEN.STRING)
+                            
+                            System.out.println("error,frame thread-id frame-id");
+
+                        else if (tr == null)
+                            
+                            System.out.println("error,no such thread");
+
+                        else
+
+                            {
+                                try {
+                                    System.out.println(tr.frame(Integer.parseInt(frameid)));
+                                } catch (NumberFormatException e) {
+                                    System.out.println("error,frame id must be an integer");
+                                }
+                            }
+
+                        break;
+
+                    case NEXT:
+
+                        if (parse.next() == parser.TOKEN.STRING)
+
+                            step(parse.getString(),
+                                 StepRequest.STEP_LINE,
+                                 StepRequest.STEP_OVER);
+                                    
+                        else
+
+                            System.out.println("error,missing thread-id");
+
+                        break;
 
                     case PREPARE:
 
@@ -243,6 +263,11 @@ public class debugger
 
                         break;
                         
+                    case QUIT:
+                        System.out.println("poxy,exit");
+                        vm.exit(0);
+                        System.exit(0);
+
                     case CONTINUE:
                     case RUN:
 
@@ -256,6 +281,24 @@ public class debugger
                                 System.out.println("resuming target program");
                                 vm.resume();
                             }
+
+                        break;
+
+                    case STACK:
+
+                        tok0           = parse.next();
+                        
+                        if (tok0 != parser.TOKEN.STRING)
+                            
+                            System.out.println("error,stack thread-id");
+
+                        else if (null == (tr = getThread(parse.getString())))
+                            
+                            System.out.println("error,no such thread," + parse.getString());
+
+                        else
+
+                            System.out.println(tr.stack());
 
                         break;
 
@@ -296,34 +339,6 @@ public class debugger
 
                         break;
 
-
-                    case FRAME:
-
-                        tok0           = parse.next();
-                        tr                = getThread(parse.getString());
-                        tok1           = parse.next();
-                        frameid     = parse.getString();
-                        
-                        if (tok0 != parser.TOKEN.STRING
-                            ||  tok1 != parser.TOKEN.STRING)
-                            
-                            System.out.println("error,frame thread-id frame-id");
-
-                        else if (tr == null)
-                            
-                            System.out.println("error,no such thread");
-
-                        else
-
-                            {
-                                try {
-                                    System.out.println(tr.frame(Integer.parseInt(frameid)));
-                                } catch (NumberFormatException e) {
-                                    System.out.println("error,frame id must be an integer");
-                                }
-                            }
-
-                        break;
 
                     default:
                         System.out.println("error,unknown command");
