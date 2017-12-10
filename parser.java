@@ -4,7 +4,7 @@ import java.util.Scanner;
 
 class parser implements Iterator
 {
-    public enum TOKEN {ALL, ATTACH, BACK, BREAK, CONTINUE, DONE, FRAME, INTO, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD};
+    public enum TOKEN {ALL, ATTACH, BACK, BREAK, CONTINUE, DONE, FRAME, INTO, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
 
     static HashMap<String, TOKEN> keywords = new HashMap<String, TOKEN>();
 
@@ -22,6 +22,7 @@ class parser implements Iterator
         keywords.put("run",        TOKEN.RUN);
         keywords.put("stack",     TOKEN.STACK);
         keywords.put("thread",    TOKEN.THREAD);
+        keywords.put("this",        TOKEN.THIS);
     }
 
     private String [] tokens = null;

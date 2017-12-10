@@ -73,7 +73,16 @@ class thread
 
         return (i == 0 && f.error != null) ? f.error : b.toString();
     }
-    
+
+    public String thises(int fn)
+    {
+        Frame          f  = getFrame(fn);
+
+        return (f.error != null) 
+            ? f.error
+            : "this," + debugger.getValueString(tr, f.thises);
+    }
+
     public String toString()
     {
         StringBuilder b = new StringBuilder("thread,"
@@ -137,6 +146,7 @@ class thread
         Location                          loc        = null;
         List<LocalVariable>           vars       = null;
         Map<LocalVariable, Value> values     = null;
+        ObjectReference               thises     = null; 
         String                            error       = null;
     }
 
@@ -170,6 +180,7 @@ class thread
                                     fr.loc = sf.location();
                                     fr.vars   = sf.visibleVariables();
                                     if (fr.vars != null) fr.values = sf.getValues(fr.vars);
+                                    fr.thises = sf.thisObject();
                                 }
                         } catch (InvalidStackFrameException e)  {
                         fr.error = "error,not suspended,thread," + tr.uniqueID();

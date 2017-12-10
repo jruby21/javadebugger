@@ -13,261 +13,264 @@
 /home/jruby/tools/jdk1.8.0_131/bin/java -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" -agentlib:jdwp=transport=dt_socket,address=localhost:8000,server=y,suspend=y foo 3 4
 
 #+BEGIN_SRC emacs-lisp :tangle yes
-    (require 'ht)
-    (require 's)
-    (require 'bm)
+  (require 'ht)
+  (require 's)
+  (require 'bm)
 
-    (defvar javadebug-mode-map
-      (let ((map (make-sparse-keymap)))
-        (define-key map (kbd "RET") 'javadebug-newline)
-        (define-key map (kbd "M-p") 'javadebug-commandring)
-        map))
+  (defvar javadebug-mode-map
+    (let ((map (make-sparse-keymap)))
+      (define-key map (kbd "RET") 'javadebug-newline)
+      (define-key map (kbd "M-p") 'javadebug-commandring)
+      map))
 
-    (defvar proxyProcess nil "the JAVA proxy program which connects to the program to be debugged")
-    (defvar defaultThread nil "the last thread in which we had a breakpoint. use this thread if no thread number is specified in a command")
+  (defvar proxyProcess nil "the JAVA proxy program which connects to the program to be debugged")
+  (defvar defaultThread nil "the last thread in which we had a breakpoint. use this thread if no thread number is specified in a command")
 
-    (defconst orgTableSeperator     "|----|\n"                                                                 "string to seperate table title from contents")
-    (defconst localTableTitle         "Locals\n"                                                              "title tor local variables table")
-    (defconst argumentsTableTitle "Arguments\n"                                                        "title for method arguments table")
-    (defconst threadTableTitle       "|ID|Name|State|Frames|Breakpoint|Suspended|\n"    "title for thread table")
+  (defconst orgTableSeperator     "|----|\n"                                                                 "string to seperate table title from contents")
+  (defconst localTableTitle         "Locals\n"                                                              "title tor local variables table")
+  (defconst argumentsTableTitle "Arguments\n"                                                        "title for method arguments table")
+  (defconst threadTableTitle       "|ID|Name|State|Frames|Breakpoint|Suspended|\n"    "title for thread table")
 
-    (defun expectedString (e) (nth 0 e))
-    (defun epectedResponse (e) (nth 1 e))
+  (defun expectedString (e) (nth 0 e))
+  (defun epectedResponse (e) (nth 1 e))
 
-    (define-derived-mode javadebug-mode
-      org-mode "JavaDebug"
-      "Major mode java debugger.")
+  (define-derived-mode javadebug-mode
+    org-mode "JavaDebug"
+    "Major mode java debugger.")
 
-    (defun startProc (px src mn)
-      (interactive "Dproxy directory: \nDsource root:: \nMmain class ")
-      (goto-char (point-max))
-      (insert (concat "\n\n** Starting debugger session " (current-time-string) ".\n\tProxy directory: " px ".\n\tSource root: " src ".\n\tMain class: " mn ".\n\n"));
-      (cd (file-name-as-directory px))
-      (delete-other-windows)
-      (javadebug-mode)
-      (setq sourceWindow (split-window-below))
-      (setq stateStack (list "start" "basic"))
-      (setq jdbuggerString "")
-      (setq javadebug-ring (make-ring 8))
-      (setq javadebug-ring-index 0)
-      (setq expected
-            (list
-             (list "proxy started" "attach localhost 8000")
-             (list "virtual machine started" (concat "prepare " mn))
-             (list "prepare class" "run")
-             (list "classloaded" (concat "break " mn " main"))
-             (list "breakpoint created at"  "continue")))
-    (setq proxyProcess
-          (start-process 
-           "jdbProxy" 
-           (current-buffer)
-           "/home/jruby/tools/jdk1.8.0_131/bin/java" 
-           "-cp" 
-           "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
-           "debugger"))
-    (set-process-filter proxyProcess 'javadebug-insertion-filter)
+  (defun startProc (px src mn)
+    (interactive "Dproxy directory: \nDsource root:: \nMmain class ")
     (goto-char (point-max))
-    (set-marker (process-mark proxyProcess) (point)))
+    (insert (concat "\n\n** Starting debugger session " (current-time-string) ".\n\tProxy directory: " px ".\n\tSource root: " src ".\n\tMain class: " mn ".\n\n"));
+    (cd (file-name-as-directory px))
+    (delete-other-windows)
+    (javadebug-mode)
+    (setq sourceWindow (split-window-below))
+    (setq stateStack (list "start" "basic"))
+    (setq jdbuggerString "")
+    (setq javadebug-ring (make-ring 8))
+    (setq javadebug-ring-index 0)
+    (setq expected
+          (list
+           (list "proxy started" "attach localhost 8000")
+           (list "virtual machine started" (concat "prepare " mn))
+           (list "prepare class" "run")
+           (list "classloaded" (concat "break " mn " main"))
+           (list "breakpoint created at"  "continue")))
+  (setq proxyProcess
+        (start-process 
+         "jdbProxy" 
+         (current-buffer)
+         "/home/jruby/tools/jdk1.8.0_131/bin/java" 
+         "-cp" 
+         "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
+         "debugger"))
+  (set-process-filter proxyProcess 'javadebug-insertion-filter)
+  (goto-char (point-max))
+  (set-marker (process-mark proxyProcess) (point)))
 
-    (defun javadebug-newline ()
-      (interactive)
-      (let ((com (buffer-substring-no-properties
-                  (line-beginning-position)
-                  (line-end-position))))
-        (if (or 
-             (/=  (line-end-position) (point-max))
-             (not (string-match-p "[a-zA-Z0-9 ]+" com)))
-            (org-return)
-          (setq javadebug-ring-index 0)
-          (ring-insert javadebug-ring com)
-          (beginning-of-line)
-          (insert  "*** ")
-          (end-of-line)
-          (newline)
-          (process-send-string proxyProcess (concat  com "\n")))))
-
-    (defun javadebug-commandring ()
-      (interactive)
-      (if (/=  (line-end-position) (point-max))
-          (progn
-            (goto-char (point-max))
-            (insert "\n")
-            (setq javadebug-ring-index 0))
+  (defun javadebug-newline ()
+    (interactive)
+    (let ((com (buffer-substring-no-properties
+                (line-beginning-position)
+                (line-end-position))))
+      (if (or 
+           (/=  (line-end-position) (point-max))
+           (not (string-match-p "[a-zA-Z0-9 ]+" com)))
+          (org-return)
+        (setq javadebug-ring-index 0)
+        (ring-insert javadebug-ring com)
         (beginning-of-line)
-        (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
-        (if (not (ring-empty-p javadebug-ring))
-            (progn
-             (if (>= javadebug-ring-index (ring-length javadebug-ring))
-                 (setq javadebug-ring-index 0))
-             (insert (ring-ref javadebug-ring javadebug-ring-index))
-              (setq javadebug-ring-index (1+ javadebug-ring-index))))))
+        (insert  "*** ")
+        (end-of-line)
+        (newline)
+        (process-send-string proxyProcess (concat  com "\n")))))
 
-    (defun writeStringToBuffer (proc string)
-      (when (buffer-live-p (process-buffer proc))
+  (defun javadebug-commandring ()
+    (interactive)
+    (if (/=  (line-end-position) (point-max))
+        (progn
+          (goto-char (point-max))
+          (insert "\n")
+          (setq javadebug-ring-index 0))
+      (beginning-of-line)
+      (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
+      (if (not (ring-empty-p javadebug-ring))
+          (progn
+           (if (>= javadebug-ring-index (ring-length javadebug-ring))
+               (setq javadebug-ring-index 0))
+           (insert (ring-ref javadebug-ring javadebug-ring-index))
+            (setq javadebug-ring-index (1+ javadebug-ring-index))))))
+
+  (defun writeStringToBuffer (proc string)
+    (when (buffer-live-p (process-buffer proc))
+      (with-current-buffer (process-buffer proc)
+        (save-excursion
+          ;; Insert the text, advancing the process marker.
+          (goto-char (point-max))
+          (insert string)))))
+
+  (defun writeOrgTableToBuffer (proc title sep rows)
+    (when (buffer-live-p (process-buffer proc))
+      (with-current-buffer (process-buffer proc)
+        (save-excursion
+          ;; Insert the text, advancing the process marker.
+          (goto-char (point-max))
+          (insert (concat "\n\n" title))
+          (insert sep)
+          (insert (dataLayout rows))
+          (set-marker (process-mark proc) (point))
+          (beginning-of-line 0)
+          (org-ctrl-c-ctrl-c)))))
+
+  (defun dataLayout (args)
+    (if args
+        (let ((s "| ")
+              (stack nil)
+              (rc 0)
+              (ac 0))
+          (push (list rc args) stack)
+          (while stack
+            (cond
+             ((not args)
+              (let ((a (pop stack)))
+                (setq args (nth 1 a))
+                (setq rc     (nth 0 a))))
+             ((listp (car args))
+              (push (list rc (cdr args)) stack)
+              (setq args (car args)))
+             ((not (listp (car args)))
+              (let ((v (car args)))
+                (setq args (cdr args))
+                (while (/= rc ac)
+                  (cond
+                   ((< ac rc)
+                    (setq s (concat s " | "))
+                    (setq ac (1+ ac)))
+                   ((> ac rc)
+                    (setq s (concat s "\n| "))
+                    (setq ac 0))))
+                (setq s (concat s v))
+                (setq rc (1+ rc))))))
+          s)
+      ""))
+
+  (defun javadebug-insertion-filter (proc string)
+    (writeStringToBuffer proc string)
+    (setq jdbuggerString (concat jdbuggerString string))
+    (while (string-match "[^ \t\n]+\n" jdbuggerString)
+      (let ((in (substring jdbuggerString 0 (1- (match-end 0)))))
+        (setq jdbuggerString (substring jdbuggerString (match-end 0)))
+        (jdbAction proc in)))
+    (when (and (buffer-live-p (process-buffer proc))
+               (get-buffer-window (process-buffer proc)))
+      (select-window (get-buffer-window (process-buffer proc)))
+      (goto-char (point-max))))
+
+  (defun jdbAction (proc in)
+    (let ((state (car stateStack))
+          (args (split-string in ",")))
+      (cond ((string= (car args) "error")
+             (writeStringToBuffer proc (concat "*** "  in "\n")))
+            ((string= state "basic")
+             (basicState proc (car args) (cdr args)))
+            ((string= state "start")
+             (startState proc in)))))
+
+  (defun basicState (proc act args)
+    (let ((retstring ()))
+      (cond ((or (string= act "breakpoint") (string= act "step"))
+             (setq defaultThread (threadID (breakpointThread args)))
+             (writeStringToBuffer
+              proc
+              (concat
+               act
+               " in thread "
+               (threadID (breakpointThread args))
+               " at "              
+               (locationFile (breakpointLocation args))
+               ":"
+               (locationLineNumber (breakpointLocation args))
+               "\n"))
+             (setSourceFileWindow
+              proc
+              (locationFile (breakpointLocation args))
+              (locationLineNumber (breakpointLocation args))))
+            ((or (string= act "local") (string= act "argument"))
+             (writeOrgTableToBuffer
+              proc
+              (if (string= act "local") localTableTitle argumentsTableTitle)
+              ""
+              (if (and args (car args)) (nth 0 (read-from-string (car args))) nil)))
+            ((string= act "proxy")
+             (if (string= "poxy" (car args))
+                 (delete-process proc)))
+            ((string= act "thread")
+             (let ((b nil))
+               (while (and args (threadDescriptor args))
+                 (setq b (cons (list (threadID args)  (threadName args) (threadState args)  (threadFrames args)  (threadBreakpoint args) (threadSuspended args)) b))
+                 (setq args (skipThread args)))
+               (writeOrgTableToBuffer proc threadTableTitle orgTableSeperator b))))))
+
+  (defun threadID (args) (nth 1 args))
+  (defun threadName (args) (nth 2 args))
+  (defun threadState (args) (nth 3 args))
+  (defun threadFrames (args) (nth 4 args))
+  (defun threadBreakpoint (args) (nth 5 args))
+  (defun threadSuspended (args) (nth 6 args))
+
+  (defun skipThread (args) (nthcdr 7 args))
+  (defun threadDescriptor (args)
+    (if (string= "thread" (car args))
+        (-slice args 0 7)
+      ()))
+
+  (defun breakpointThread (args) (-slice args 0 7))
+  (defun breakpointLocation (args) (-slice args  7 12))
+
+  (defun locationFile (args) (nth 1 args))
+  (defun locationLineNumber (args) (nth 2 args))
+  (defun locationMethod (args) (nth 3 args))
+
+  (defun nameValuePairName (args) (nth 0 args))
+  (defun nameValuePairValue (args) (nth 1 args))
+  (defun skipNameValuePair   (args) (nthcdr 2 args))
+
+  (defun startState (proc in)
+    (message (concat "expected " (expectedString  (car expected))  " | " in))
+    (if (string-prefix-p (expectedString (car expected)) in)
+        (let ((er (expectedResponse (pop expected))))
+          (writeStringToBuffer proc (concat "\n*** " er "\n"))
+          (process-send-string proc (concat er "\n"))))
+    (if (null expected)
+        (pop stateStack)))
+
+  (defun setSourceFileWindow (proc file line)
+    (let ((bug (find-file-noselect file)))
+      (when (and bug (buffer-live-p (process-buffer proc)))
+        (with-current-buffer bug
+          (goto-char (point-min))
+          (forward-line (1- (string-to-number line)))
+          (bm-remove-all-all-buffers)
+          (bm-toggle))
         (with-current-buffer (process-buffer proc)
-          (save-excursion
-            ;; Insert the text, advancing the process marker.
-            (goto-char (point-max))
-            (insert string)))))
+          (goto-char (point-max)))
+        (if (= (length (window-list)) 1)
+            (split-window))
+        (winForOtherBuffer bug (process-buffer proc))
+        (let ((procWin (winForOtherBuffer (process-buffer proc) bug)))
+          (if procWin
+              (select-window procWin))))))
 
-    (defun writeOrgTableToBuffer (proc title sep rows)
-      (when (buffer-live-p (process-buffer proc))
-        (with-current-buffer (process-buffer proc)
-          (save-excursion
-            ;; Insert the text, advancing the process marker.
-            (goto-char (point-max))
-            (insert (concat "\n\n" title))
-            (insert sep)
-            (insert (dataLayout rows))
-            (set-marker (process-mark proc) (point))
-            (beginning-of-line 0)
-            (org-ctrl-c-ctrl-c)))))
-
-    (defun dataLayout (args)
-      (if args
-          (let ((s "| ")
-                (stack nil)
-                (rc 0)
-                (ac 0))
-            (push (list rc args) stack)
-            (while stack
-              (cond
-               ((not args)
-                (let ((a (pop stack)))
-                  (setq args (nth 1 a))
-                  (setq rc     (nth 0 a))))
-               ((listp (car args))
-                (push (list rc (cdr args)) stack)
-                (setq args (car args)))
-               ((not (listp (car args)))
-                (let ((v (car args)))
-                  (setq args (cdr args))
-                  (while (/= rc ac)
-                    (cond
-                     ((< ac rc)
-                      (setq s (concat s " | "))
-                      (setq ac (1+ ac)))
-                     ((> ac rc)
-                      (setq s (concat s "\n| "))
-                      (setq ac 0))))
-                  (setq s (concat s v))
-                  (setq rc (1+ rc))))))
-            s)
-        ""))
-
-    (defun javadebug-insertion-filter (proc string)
-      (message "insertion filter %s" string)
-      (writeStringToBuffer proc string)
-      (setq jdbuggerString (concat jdbuggerString string))
-      (while (string-match "[^ \t\n]+\n" jdbuggerString)
-        (let ((in (substring jdbuggerString 0 (1- (match-end 0)))))
-          (setq jdbuggerString (substring jdbuggerString (match-end 0)))
-          (jdbAction proc in))))
-
-    (defun jdbAction (proc in)
-      (let ((state (car stateStack))
-            (args (split-string in ",")))
-        (cond ((string= (car args) "error")
-               (writeStringToBuffer proc (concat "*** "  in "\n")))
-              ((string= state "basic")
-               (basicState proc (car args) (cdr args)))
-              ((string= state "start")
-               (startState proc in)))))
-
-    (defun basicState (proc act args)
-      (let ((retstring ()))
-        (cond ((or (string= act "breakpoint") (string= act "step"))
-               (setq defaultThread (threadID (breakpointThread args)))
-               (writeStringToBuffer
-                proc
-                (concat
-                 act
-                 " in thread "
-                 (threadID (breakpointThread args))
-                 " at "              
-                 (locationFile (breakpointLocation args))
-                 ":"
-                 (locationLineNumber (breakpointLocation args))
-                 "\n"))
-               (setSourceFileWindow
-                proc
-                (locationFile (breakpointLocation args))
-                (locationLineNumber (breakpointLocation args))))
-              ((or (string= act "local") (string= act "argument"))
-               (writeOrgTableToBuffer
-                proc
-                (if (string= act "local") localTableTitle argumentsTableTitle)
-                ""
-                (if (and args (car args)) (nth 0 (read-from-string (car args))) nil)))
-              ((string= act "proxy")
-               (if (string= "poxy" (car args))
-                   (delete-process proc)))
-              ((string= act "thread")
-               (let ((b nil))
-                 (while (and args (threadDescriptor args))
-                   (setq b (cons (list (threadID args)  (threadName args) (threadState args)  (threadFrames args)  (threadBreakpoint args) (threadSuspended args)) b))
-                   (setq args (skipThread args)))
-                 (writeOrgTableToBuffer proc threadTableTitle orgTableSeperator b))))))
-
-    (defun threadID (args) (nth 1 args))
-    (defun threadName (args) (nth 2 args))
-    (defun threadState (args) (nth 3 args))
-    (defun threadFrames (args) (nth 4 args))
-    (defun threadBreakpoint (args) (nth 5 args))
-    (defun threadSuspended (args) (nth 6 args))
-
-    (defun skipThread (args) (nthcdr 7 args))
-    (defun threadDescriptor (args)
-      (if (string= "thread" (car args))
-          (-slice args 0 7)
-        ()))
-
-    (defun breakpointThread (args) (-slice args 0 7))
-    (defun breakpointLocation (args) (-slice args  7 12))
-
-    (defun locationFile (args) (nth 1 args))
-    (defun locationLineNumber (args) (nth 2 args))
-    (defun locationMethod (args) (nth 3 args))
-
-    (defun nameValuePairName (args) (nth 0 args))
-    (defun nameValuePairValue (args) (nth 1 args))
-    (defun skipNameValuePair   (args) (nthcdr 2 args))
-
-    (defun startState (proc in)
-      (message (concat "expected " (expectedString  (car expected))  " | " in))
-      (if (string-prefix-p (expectedString (car expected)) in)
-          (let ((er (expectedResponse (pop expected))))
-            (writeStringToBuffer proc (concat "\n*** " er "\n"))
-            (process-send-string proc (concat er "\n"))))
-      (if (null expected)
-          (pop stateStack)))
-
-    (defun setSourceFileWindow (proc file line)
-      (let ((bug (find-file-noselect file)))
-        (when (and bug (buffer-live-p (process-buffer proc)))
-          (with-current-buffer bug
-            (goto-char (point-min))
-            (forward-line (1- (string-to-number line)))
-            (bm-remove-all-all-buffers)
-            (bm-toggle))
-          (with-current-buffer (process-buffer proc)
-            (goto-char (point-max)))
-          (if (= (length (window-list)) 1)
-              (split-window))
-          (winForOtherBuffer bug (process-buffer proc))
-          (let ((procWin (winForOtherBuffer (process-buffer proc) bug)))
-            (if procWin
-                (select-window procWin))))))
-
-    (defun winForOtherBuffer (buffer notbuffer)
-      (let ((win (get-buffer-window buffer)))
-        (when (not win)
-          (let  ((wl (window-list)))
-            (while (and wl (eq notbuffer (window-buffer (car wl))))
-              (setq wl (cdr wl)))
-            (setq win (if wl (car wl) (car (window-list))))
-            (set-window-buffer win buffer)))
-        win))
+  (defun winForOtherBuffer (buffer notbuffer)
+    (let ((win (get-buffer-window buffer)))
+      (when (not win)
+        (let  ((wl (window-list)))
+          (while (and wl (eq notbuffer (window-buffer (car wl))))
+            (setq wl (cdr wl)))
+          (setq win (if wl (car wl) (car (window-list))))
+          (set-window-buffer win buffer)))
+      win))
 
 #+END_SRC
 
@@ -279,6 +282,24 @@
 
 
 ** Starting debugger session Fri Dec  8 16:09:24 2017.
+	Proxy directory: /home/jruby/tmp/jdb/.
+	Source root: /home/jruby/tmp/jdb/.
+	Main class: foo.
+
+proxy started
+
+
+
+** Starting debugger session Sat Dec  9 18:41:37 2017.
+	Proxy directory: /home/jruby/tmp/jdb/.
+	Source root: /home/jruby/tmp/jdb/.
+	Main class: foo.
+
+
+Process jdbProxy finished
+
+
+** Starting debugger session Sat Dec  9 19:14:16 2017.
 	Proxy directory: /home/jruby/tmp/jdb/.
 	Source root: /home/jruby/tmp/jdb/.
 	Main class: foo.
@@ -303,38 +324,24 @@ breakpoint created at foo:8
 resuming target program
 breakpoint,thread,1,main,running,1,true,true,location,foo.java,8,main
 breakpoint in thread 1 at foo.java:8
-
+*** breakpoint foo sum
+error,unknown command
+error,unknown command
+error,unknown command
+*** error,unknown command
+*** error,unknown command
+*** error,unknown command
 *** break foo sum
 breakpoint created at foo:35
-
 *** continue
 resuming target program
 breakpoint,thread,1,main,running,2,true,true,location,foo.java,35,sum
 breakpoint in thread 1 at foo.java:35
-
-*** stack
-error,stack thread-id
-*** error,stack thread-id
-*** stack 1
-stack,1,location,foo.java,35,sum,location,foo.java,27,main
-
-*** frame 1 -
-error,frame id must be an integer
-*** error,frame id must be an integer
-*** frame 1 0
-frame,0,thread,1,location,foo.java,35,sum
-argument,()
-local,()
-
-
-
-Arguments
-*** quit
-poxy,exit
-VMDisconnectEvent
-Exception,com.sun.jdi.VMDisconnectedException
-
-
-Locals
-
-Process jdbProxy finished
+*** this
+error,this thread-id frame-id
+*** error,this thread-id frame-id
+*** this 1 0
+getValueString instance of foo(id=70) ,  v.type.name() foo , v.type.toString  class foo (loaded by instance of sun.misc.Launcher$AppClassLoader(id=71)) , is ClassType true , v.getClass class com.sun.tools.jdi.ObjectReferenceImpl, is ReferenceType true, value is ObjectReference true
+getValueString 0 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+getValueString 1 ,  v.type.name() int , v.type.toString  int , is ClassType false , v.getClass class com.sun.tools.jdi.IntegerValueImpl, is ReferenceType false, value is ObjectReference false
+this,( "a" "0" )( "b" "1" )) 

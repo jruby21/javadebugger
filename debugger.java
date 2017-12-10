@@ -303,6 +303,35 @@ public class debugger
                         break;
 
                         
+                    case THIS:
+                        
+                        tok0           = parse.next();
+                        tr                = getThread(parse.getString());
+                        tok1           = parse.next();
+                        frameid     = parse.getString();
+                        
+                        if (tok0 != parser.TOKEN.STRING
+                            ||  tok1 != parser.TOKEN.STRING)
+                            
+                            System.out.println("error,this thread-id frame-id");
+
+                        else if (tr == null)
+                            
+                            System.out.println("error,no such thread," );
+
+                        else
+
+                            {
+                                    try
+
+                                        {
+                                            System.out.println(tr.thises(Integer.parseInt(frameid)));
+                                        } catch (NumberFormatException e) {System.out.println("error,frame id must be an integer," + frameid);}
+                            }
+
+                        break;
+                        
+                        
                     case THREAD:
 
                         tok0 = parse.next();
