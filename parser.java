@@ -25,23 +25,30 @@ class parser implements Iterator
         keywords.put("this",        TOKEN.THIS);
     }
 
-    private String [] tokens = null;
-    private int       index  = 0;
-    private int       number = -1;
-    private String    string = "";
-
-    public int    getNumber() { return number; }
-    public String getString() { return string; }
+    private String [] tokens            = null;
+    private int       index               = 0;
+    private int       number            = -1;
+    private String   string              = "";
+    private String   commandId      = "";
+    private String   commandString = "";
+    
+    public int     getNumber()              { return number; }
+    public String getString()                 { return string; }
+    public String getCommandId()        { return commandId; }
+    public String getCommandString()  { return commandString; }
     
     public parser(String in)
     {
-        tokens = in.split("[ \t]+");
+        String[] t = in.split(",");
+        commandId = t [0];
+        tokens = t [1].split("[ \t]+");
         index  = 0;
+        commandString = in;
     }
 
-    public void         clear()       { index = tokens.length;          }
-    public boolean	hasNext() {return index < tokens.length;}
-
+    public void      clear()                      { index = tokens.length;          }
+    public boolean	hasNext()                 { return index < tokens.length;}
+    
     public TOKEN	next()
     {
         if (index >= tokens.length)

@@ -38,16 +38,31 @@ public class debugger
         
     void go(InputStream input) throws Exception
     {
-        System.out.println("proxy started");
-        BufferedReader in = new BufferedReader(new InputStreamReader(input));
+        System.out.println("proxy,started");
 
-        for (String s = in.readLine();
-             !s.equalsIgnoreCase("exit");
-             s = in.readLine())
+        try {
+            BufferedReader in = new BufferedReader(new InputStreamReader(input));
 
-            expr(new parser(s));
+            for (String s = in.readLine();
+                 !s.equalsIgnoreCase("exit");
+                 s = in.readLine())
+                
+                {
+                    parser p = new parser(s);
+                    expr(p);
+                    System.out.println("completed," + p.getCommandId());
+                }
+        } catch (IllegalArgumentException e) {
+            System.out.println("exception,IllegalArgumentException," + e.toString());
+        } catch (IOException e) {
+            System.out.println("exception,IOException," + e.toString());
+        } finally {
+            System.out.println("proxy,exit");
+            if (vm != null) vm.exit(0);
+            System.exit(0);
+        }
     }
-
+    
     private String              hostname   = null;
     private String              port       = null;
     private String              threadid   = null;
@@ -265,7 +280,7 @@ public class debugger
                         
                     case QUIT:
                         System.out.println("poxy,exit");
-                        vm.exit(0);
+                        if (vm != null) vm.exit(0);
                         System.exit(0);
 
                     case CONTINUE:
@@ -370,7 +385,7 @@ public class debugger
 
 
                     default:
-                        System.out.println("error,unknown command");
+                        System.out.println("error,unknown command :" + parse.getCommandString() + ":");
                         break;
                     }
             }
@@ -484,8 +499,6 @@ public class debugger
         if (v == null)
 
             return "\"null\"";
-
-        System.out.println("getValueString " + v.toString() + " ,  v.type.name() " + v.type().name() + " , v.type.toString  " + v.type().toString() + " , is ClassType " + (v.type() instanceof ClassType) + " , v.getClass " + v.getClass() + ", is ReferenceType " + (v.type() instanceof ReferenceType) + ", value is ObjectReference " + (v instanceof ObjectReference));
 
         if (v instanceof BooleanValue)  return "\"" + Boolean.toString(((BooleanValue) v).value()) + "\"";
         if (v instanceof ByteValue)        return "\"" + Byte.toString(((ByteValue) v).value()) + "\"";
