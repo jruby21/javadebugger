@@ -50,12 +50,12 @@ public class debugger
                 {
                     parser p = new parser(s);
                     expr(p);
-                    System.out.println("completed," + p.getCommandId());
+                    System.out.println("completed");
                 }
         } catch (IllegalArgumentException e) {
-            System.out.println("exception,IllegalArgumentException," + e.toString());
+            System.out.println("error,IllegalArgumentException," + e.toString());
         } catch (IOException e) {
-            System.out.println("exception,IOException," + e.toString());
+            System.out.println("error,IOException," + e.toString());
         } finally {
             System.out.println("proxy,exit");
             if (vm != null) vm.exit(0);
@@ -204,9 +204,8 @@ public class debugger
                                     
                                     br = vm.eventRequestManager().createBreakpointRequest(bl);
 
-                                System.out.println("breakpoint created at " + bl.toString());
                                 br.enable();
-
+                                System.out.println("break,created," + bl.toString());
                             } catch (NumberFormatException e) {
                             System.out.println("error,line nunmber must be an integer.");
                         } catch (AbsentInformationException a) {
@@ -257,7 +256,7 @@ public class debugger
 
                         break;
 
-                    case PREPARE:
+                    case PREPARE
 
                         if (vm == null)
 
@@ -270,17 +269,17 @@ public class debugger
                         else
 
                             {
-                                System.out.println("prepare class " + parse.getString());
                                 ClassPrepareRequest r = vm.eventRequestManager().createClassPrepareRequest();
                                 r.addClassFilter(parse.getString());
                                 r.enable();
+                                System.out.println("prepared," + parse.getString());
                             }
 
                         break;
                         
                     case QUIT:
-                        System.out.println("poxy,exit");
                         if (vm != null) vm.exit(0);
+                        System.out.println("proxy,exit");
                         System.exit(0);
 
                     case CONTINUE:
@@ -293,8 +292,8 @@ public class debugger
                         else
 
                             {
-                                System.out.println("resuming target program");
                                 vm.resume();
+                                System.out.println("resuming");
                             }
 
                         break;

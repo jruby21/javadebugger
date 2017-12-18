@@ -13,107 +13,120 @@
 /home/jruby/tools/jdk1.8.0_131/bin/java -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" -agentlib:jdwp=transport=dt_socket,address=localhost:8000,server=y,suspend=y foo 3 4
 
 #+BEGIN_SRC emacs-lisp :tangle yes
-        (require 'ht)
-        (require 's)
-        (require 'bm)
+  (require 'ht)
+  (require 's)
+  (require 'bm)
 
-        (defvar javadebug-mode-map
-          (let ((map (make-sparse-keymap)))
-            (define-key map (kbd "RET") 'javadebug-newline)
-            (define-key map (kbd "M-p") 'javadebug-commandring)
-            map))
+  (defvar javadebug-mode-map
+    (let ((map (make-sparse-keymap)))
+      (define-key map (kbd "RET") 'javadebug-newline)
+      (define-key map (kbd "M-p") 'javadebug-commandring)
+      map))
 
-        (defvar proxyProcess nil "the JAVA proxy program which connects to the program to be debugged")
-        (defvar defaultThread nil "the last thread in which we had a breakpoint. use this thread if no thread number is specified in a command")
-
-        (defconst orgTableSeperator     "|----|\n"                                                                 "string to seperate table title from contents")
-        (defconst localTableTitle         "Locals\n"                                                              "title tor local variables table")
-        (defconst argumentsTableTitle "Arguments\n"                                                        "title for method arguments table")
-        (defconst threadTableTitle       "|ID|Name|State|Frames|Breakpoint|Suspended|\n"    "title for thread table")
-
-        (defconst sessionHeadline     "* "     "start of debugging session")
-        (defconst breakpointHeadline "** "    "reports a breakpoint")
-        (defconst commandHeadline  "*** "   "enter a command")
-
-        (defun expectedString (e) (nth 0 e))
-        (defun epectedResponse (e) (nth 1 e))
-
-        (define-derived-mode javadebug-mode
-          org-mode "JavaDebug"
-          "Major mode java debugger.")
-
-        (defun startProc (px src mn)
-          (interactive "Dproxy directory: \nDsource root:: \nMmain class ")
-          (goto-char (point-max))
-          (insert (concat "\n\n" sessionHeadline "Starting debugger session " (current-time-string) ".\n\tProxy directory: " px ".\n\tSource root: " src ".\n\tMain class: " mn ".\n\n"));
-          (cd (file-name-as-directory px))
-          (delete-other-windows)
-          (javadebug-mode)
-          (setq sourceWindow (split-window-below))
-          (setq stateStack (list "start" "basic"))
-          (setq jdbuggerString "")
-          (setq javadebug-ring (make-ring 8))
-          (setq javadebug-ring-index 0)
-          (setq commandsToRun ())
-          (setq commandClock 0)
-          (setq commandDone 0)
-          (setq expected
-                (list
-                 (list "proxy,started" "attach localhost 8000")
-                 (list "virtual machine started" (concat "prepare " mn))
-                 (list "prepare class" "run")
-                 (list "classloaded" (concat "break " mn " main"))
-                 (list "breakpoint created at"  "continue")))
-        (setq proxyProcess
-              (start-process 
-               "jdbProxy" 
-               (current-buffer)
-               "/home/jruby/tools/jdk1.8.0_131/bin/java" 
-               "-cp" 
-               "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
-               "debugger"))
-        (set-process-filter proxyProcess 'javadebug-insertion-filter)
-        (goto-char (point-max))
-        (set-marker (process-mark proxyProcess) (point)))
-
-      (defun javadebug-newline ()
-        (interactive)
-        (let ((com (buffer-substring-no-properties
-                   (line-beginning-position)
-                   (line-end-position))))
-          (if (or 
-               (/=  (line-end-position) (point-max))
-               (not (string-match-p "[a-zA-Z0-9 ]+" com)))
-              (org-return)
-            (beginning-of-line)
-            (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
-            (javadebug-send-command com))))
-
-        (defun javadebug-commandring ()
-          (interactive)
-          (if (/=  (line-end-position) (point-max))
-              (progn
-                (goto-char (point-max))
-                (insert "\n")
-                (setq javadebug-ring-index 0))
-            (beginning-of-line)
-            (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
-            (if (not (ring-empty-p javadebug-ring))
-                (progn
-                 (if (>= javadebug-ring-index (ring-length javadebug-ring))
-                     (setq javadebug-ring-index 0))
-                 (insert (ring-ref javadebug-ring javadebug-ring-index))
-                  (setq javadebug-ring-index (1+ javadebug-ring-index))))))
-
-      (defun javadebug-send-command (in)
-        (let ((com (split-string in ";")))
-          (dolist (c com)
-            (setq commandsToRun (append commandsToRun (list c))))
-          (javadebug-send-next-command)))
+  (defvar proxyProcess nil "the JAVA proxy program which connects to the program to be debugged")
+  (defvar defaultThread nil "the last thread in which we had a breakpoint. use this thread if no thread number is specified in a command")
 
   (defvar commandsToRun  () "list of commands to send to proxy")
   (defvar commandClock    0 "logical clock to id command")
   (defvar commandDone     0 "this command finished") 
+  (defvar stepCommands    () "run these commands after a step command finishes")
+
+  (defconst orgTableSeperator     "|----|\n"                                                                 "string to seperate table title from contents")
+  (defconst localTableTitle         "Locals\n"                                                              "title tor local variables table")
+  (defconst argumentsTableTitle "Arguments\n"                                                        "title for method arguments table")
+  (defconst threadTableTitle       "|ID|Name|State|Frames|Breakpoint|Suspended|\n"    "title for thread table")
+
+  (defconst sessionHeadline     "* "     "start of debugging session")
+  (defconst breakpointHeadline "** "    "reports a breakpoint")
+  (defconst commandHeadline  "*** "   "enter a command")
+
+  (defun expectedString (e) (nth 0 e))
+  (defun epectedResponse (e) (nth 1 e))
+
+  (define-derived-mode javadebug-mode
+    org-mode "JavaDebug"
+    "Major mode java debugger.")
+
+  (defun startProc (px src mn)
+    (interactive "Dproxy directory: \nDsource root:: \nMmain class ")
+    (goto-char (point-max))
+    (insert (concat "\n\n" sessionHeadline "Starting debugger session " (current-time-string) ".\n\tProxy directory: " px ".\n\tSource root: " src ".\n\tMain class: " mn ".\n\n"));
+    (cd (file-name-as-directory px))
+    (delete-other-windows)
+    (javadebug-mode)
+    (setq sourceWindow (split-window-below))
+    (setq stateStack (list "start" "basic"))
+    (setq jdbuggerString "")
+    (setq javadebug-ring (make-ring 8))
+    (setq javadebug-ring-index 0)
+    (setq commandsToRun ())
+    (setq commandClock 0)
+    (setq commandDone 0)
+    (setq stepCommands ())
+    (setq expected
+          (list
+           (list "proxy,started" "attach localhost 8000")
+           (list "virtual machine started" (concat "prepare " mn))
+           (list "prepare class" "run")
+           (list "classloaded" (concat "break " mn " main"))
+           (list "breakpoint created at"  "continue")))
+    (setq proxyProcess
+          (start-process 
+           "jdbProxy" 
+           (current-buffer)
+           "/home/jruby/tools/jdk1.8.0_131/bin/java" 
+           "-cp" 
+           "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
+           "debugger"))
+    (set-process-filter proxyProcess 'javadebug-insertion-filter)
+    (goto-char (point-max))
+    (set-marker (process-mark proxyProcess) (point)))
+
+  (defun javadebug-newline ()
+    (interactive)
+    (let ((com (buffer-substring-no-properties
+                (line-beginning-position)
+                (line-end-position))))
+      (if (or 
+           (/=  (line-end-position) (point-max))
+           (not (string-match-p "[a-zA-Z0-9 ]+" com)))
+          (org-return)
+        (beginning-of-line)
+        (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
+        (javadebug-send-command com))))
+
+  (defun javadebug-commandring ()
+    (interactive)
+    (if (/=  (line-end-position) (point-max))
+        (progn
+          (goto-char (point-max))
+          (insert "\n")
+          (setq javadebug-ring-index 0))
+      (beginning-of-line)
+      (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
+      (if (not (ring-empty-p javadebug-ring))
+          (progn
+            (if (>= javadebug-ring-index (ring-length javadebug-ring))
+                (setq javadebug-ring-index 0))
+            (insert (ring-ref javadebug-ring javadebug-ring-index))
+            (setq javadebug-ring-index (1+ javadebug-ring-index))))))
+
+  (defun javadebug-send-command (in)
+    (let ((com (split-string in ";"))
+          (cl     ())
+          (c     ()))
+      (while (setq c (car com))
+        (setq c (s-trim c))
+        (setq com (cdr com))
+        (cond ((or
+                (s-starts-with? "next" c t)
+                (s-starts-with? "back" c t)
+                (s-starts-with? "into" c t))
+              (setq stepCommands (append stepCommands com))
+              (setq com ()))
+              (t (setq cl (append cl (list c))))))
+      (setq commandsToRun (append commandsToRun cl)))
+      (javadebug-send-next-command))
 
   (defun javadebug-send-next-command ()
     (if (and commandsToRun
@@ -191,7 +204,8 @@
           (when (and (buffer-live-p (process-buffer proc))
                      (get-buffer-window (process-buffer proc)))
             (select-window (get-buffer-window (process-buffer proc)))
-            (goto-char (point-max))))))
+            (goto-char (point-max))
+            (insert "\n")))))
 
   (defun jdbAction (proc in)
     (writeStringToBuffer proc (concat "Processed: "  in " :EndProcessed\n"))
@@ -210,42 +224,52 @@
 
   (defun basicState (proc act args)
     (let ((retstring ()))
-      (cond ((or (string= act "breakpoint") (string= act "step"))
-             (setq defaultThread (threadID (breakpointThread args)))
-             (writeStringToBuffer
-              proc
-              (concat
-               breakpointHeadline
-               act
-               " in thread "
-               (threadID (breakpointThread args))
-               " at "              
-               (locationFile (breakpointLocation args))
-               ":"
-               (locationLineNumber (breakpointLocation args))
-               "\n"))
-             (setSourceFileWindow
-              proc
-              (locationFile (breakpointLocation args))
-              (locationLineNumber (breakpointLocation args))))
+      (cond ((string= act "breakpoint")
+             (reportBreak args))
+            ((string= act "step")
+             (reportBreak args)
+             (setq commandsToRun (append stepCommands commandsToRun))
+             (javadebug-send-next-command))
+            ((string= act "proxy")
+             (if (string= "exit" (car args))
+                 (delete-process proc))
+             (if (string= "started" (car args))
+                 (writeStringToBuffer proc "Debugger proxy started\n")))
+            ((string= act "break") )
+            ((string= act "resuming") )
+            ((string= act "frame") )
             ((or (string= act "local") (string= act "argument"))
              (writeOrgTableToBuffer
               proc
               (if (string= act "local") localTableTitle argumentsTableTitle)
               ""
               (if (and args (car args)) (nth 0 (read-from-string (car args))) nil)))
-            ((string= act "proxy")
-             (if (string= "exit" (car args))
-                 (delete-process proc))
-             (if (string= "started" (car args))
-                 (writeStringToBuffer proc "Debugger proxy started\n")))
             ((string= act "thread")
              (let ((b nil))
                (while (and args (threadDescriptor args))
                  (setq b (cons (list (threadID args)  (threadName args) (threadState args)  (threadFrames args)  (threadBreakpoint args) (threadSuspended args)) b))
                  (setq args (skipThread args)))
                (writeOrgTableToBuffer proc threadTableTitle orgTableSeperator b)))
-            (t (writeStringToBuffer proc (format "unknown command %s arguments %s \n" act (if args args "null")))))))
+            (t (writeStringToBuffer proc (format "unknown response %s arguments %s \n" act (if args args "null")))))))
+
+  (defun reportBreak (args)
+    (setq defaultThread (threadID (breakpointThread args)))
+    (writeStringToBuffer
+     proc
+     (concat
+      breakpointHeadline
+      act
+      " in thread "
+      (threadID (breakpointThread args))
+      " at "              
+      (locationFile (breakpointLocation args))
+      ":"
+      (locationLineNumber (breakpointLocation args))
+      "\n"))
+    (setSourceFileWindow
+     proc
+     (locationFile (breakpointLocation args))
+     (locationLineNumber (breakpointLocation args))))
 
   (defun threadID (args) (nth 1 args))
   (defun threadName (args) (nth 2 args))
@@ -306,11 +330,9 @@
 
 #+END_SRC
 
-#+RESULTS:
-: winForOtherBuffer
 
 
-* Starting debugger session Fri Dec 15 06:52:09 2017.
+* Starting debugger session Sat Dec 16 20:08:40 2017.
 	Proxy directory: /home/jruby/tmp/jdb/.
 	Source root: /home/jruby/tmp/jdb/.
 	Main class: test.foo.
@@ -323,50 +345,60 @@ c: proxy,started com (proxy,started)
 Processed: proxy,started :EndProcessed
 
 *** attach localhost 8000
-Received: attached,created virtual machine
+
+Received: attached,created virtual machine :EndReceived
+Received: 
+completed
  :EndReceived
 jdbuggerString: attached,created virtual machine
- com (attached,created virtual machine)
-c: attached,created virtual machine com (attached,created virtual machine)
+completed
+ com (attached,created virtual machine completed)
+c: attached,created virtual machine com (attached,created virtual machine completed)
 Processed: attached,created virtual machine :EndProcessed
-Received: completed,1
-virtual machine started
+c: completed com (attached,created virtual machine completed)
+Processed: completed :EndProcessed
+Completed: commandsToRun nil proxyAvailable nil
+
+Received: virtual machine started
  :EndReceived
-jdbuggerString: completed,1
-virtual machine started
- com (completed,1 virtual machine started)
-c: completed,1 com (completed,1 virtual machine started)
-Processed: completed,1 :EndProcessed
-Completed: commandsToRun nil commandDone 0 commandClock 1
-c: virtual machine started com (completed,1 virtual machine started)
+jdbuggerString: virtual machine started
+ com (virtual machine started)
+c: virtual machine started com (virtual machine started)
 Processed: virtual machine started :EndProcessed
 
 *** prepare test.foo
+
 Received: prepare class test.foo
-completed,2
+completed
  :EndReceived
 jdbuggerString: prepare class test.foo
-completed,2
- com (prepare class test.foo completed,2)
-c: prepare class test.foo com (prepare class test.foo completed,2)
+completed
+ com (prepare class test.foo completed)
+c: prepare class test.foo com (prepare class test.foo completed)
 Processed: prepare class test.foo :EndProcessed
-c: completed,2 com (prepare class test.foo completed,2)
-Processed: completed,2 :EndProcessed
-Completed: commandsToRun (run) commandDone 1 commandClock 2
+c: completed com (prepare class test.foo completed)
+Processed: completed :EndProcessed
+Completed: commandsToRun (run) proxyAvailable nil
 
 *** run
+
 Received: resuming target program
-completed,3
  :EndReceived
 jdbuggerString: resuming target program
-completed,3
- com (resuming target program completed,3)
-c: resuming target program com (resuming target program completed,3)
+ com (resuming target program)
+c: resuming target program com (resuming target program)
 Processed: resuming target program :EndProcessed
-c: completed,3 com (resuming target program completed,3)
-Processed: completed,3 :EndProcessed
-Completed: commandsToRun nil commandDone 2 commandClock 3
-Received: classloaded,test.foo
+
+Received: completed
+ :EndReceived
+jdbuggerString: completed
+ com (completed)
+c: completed com (completed)
+Processed: completed :EndProcessed
+Completed: commandsToRun nil proxyAvailable nil
+
+Received: classloaded,test.foo :EndReceived
+Received: 
  :EndReceived
 jdbuggerString: classloaded,test.foo
  com (classloaded,test.foo)
@@ -374,33 +406,37 @@ c: classloaded,test.foo com (classloaded,test.foo)
 Processed: classloaded,test.foo :EndProcessed
 
 *** break test.foo main
+
 Received: breakpoint created at test.foo:10
  :EndReceived
 jdbuggerString: breakpoint created at test.foo:10
  com (breakpoint created at test.foo:10)
 c: breakpoint created at test.foo:10 com (breakpoint created at test.foo:10)
 Processed: breakpoint created at test.foo:10 :EndProcessed
-Received: completed,4
+
+Received: completed
  :EndReceived
-jdbuggerString: completed,4
- com (completed,4)
-c: completed,4 com (completed,4)
-Processed: completed,4 :EndProcessed
-Completed: commandsToRun (continue) commandDone 3 commandClock 4
+jdbuggerString: completed
+ com (completed)
+c: completed com (completed)
+Processed: completed :EndProcessed
+Completed: commandsToRun (continue) proxyAvailable nil
 
 *** continue
+
 Received: resuming target program
-completed,5
+completed
  :EndReceived
 jdbuggerString: resuming target program
-completed,5
- com (resuming target program completed,5)
-c: resuming target program com (resuming target program completed,5)
+completed
+ com (resuming target program completed)
+c: resuming target program com (resuming target program completed)
 Processed: resuming target program :EndProcessed
-unknown command resuming target program arguments null 
-c: completed,5 com (resuming target program completed,5)
-Processed: completed,5 :EndProcessed
-Completed: commandsToRun nil commandDone 4 commandClock 5
+unknown response resuming target program arguments null 
+c: completed com (resuming target program completed)
+Processed: completed :EndProcessed
+Completed: commandsToRun nil proxyAvailable nil
+
 Received: breakpoint,thread,1,main,running,1,true,true,location,test/foo.java,10,main
  :EndReceived
 jdbuggerString: breakpoint,thread,1,main,running,1,true,true,location,test/foo.java,10,main
@@ -409,158 +445,3 @@ c: breakpoint,thread,1,main,running,1,true,true,location,test/foo.java,10,main c
 Processed: breakpoint,thread,1,main,running,1,true,true,location,test/foo.java,10,main :EndProcessed
 ** breakpoint in thread 1 at test/foo.java:10
 
-*** stack
-Received: error,stack thread-id
-completed,6
- :EndReceived
-jdbuggerString: error,stack thread-id
-completed,6
- com (error,stack thread-id completed,6)
-c: error,stack thread-id com (error,stack thread-id completed,6)
-Processed: error,stack thread-id :EndProcessed
- error,stack thread-id
-c: completed,6 com (error,stack thread-id completed,6)
-Processed: completed,6 :EndProcessed
-Completed: commandsToRun nil commandDone 5 commandClock 6
-
-*** stack 1
-Received: stack,1,location,test/foo.java,10,main :EndReceived
-Received: 
-completed,7
- :EndReceived
-jdbuggerString: stack,1,location,test/foo.java,10,main
-completed,7
- com (stack,1,location,test/foo.java,10,main completed,7)
-c: stack,1,location,test/foo.java,10,main com (stack,1,location,test/foo.java,10,main completed,7)
-Processed: stack,1,location,test/foo.java,10,main :EndProcessed
-unknown command stack arguments (1 location test/foo.java 10 main) 
-c: completed,7 com (stack,1,location,test/foo.java,10,main completed,7)
-Processed: completed,7 :EndProcessed
-Completed: commandsToRun nil commandDone 6 commandClock 7
-
-*** next
-Received: error,missing thread-id
-completed,8
- :EndReceived
-jdbuggerString: error,missing thread-id
-completed,8
- com (error,missing thread-id completed,8)
-c: error,missing thread-id com (error,missing thread-id completed,8)
-Processed: error,missing thread-id :EndProcessed
- error,missing thread-id
-c: completed,8 com (error,missing thread-id completed,8)
-Processed: completed,8 :EndProcessed
-Completed: commandsToRun (next) commandDone 7 commandClock 8
-
-*** next
-Received: error,missing thread-id
-completed,9
- :EndReceived
-jdbuggerString: error,missing thread-id
-completed,9
- com (error,missing thread-id completed,9)
-c: error,missing thread-id com (error,missing thread-id completed,9)
-Processed: error,missing thread-id :EndProcessed
- error,missing thread-id
-c: completed,9 com (error,missing thread-id completed,9)
-Processed: completed,9 :EndProcessed
-Completed: commandsToRun nil commandDone 8 commandClock 9
-
-*** next 1
-Received: completed,10
-step,thread,1,main,running,1,false,true,location,test/foo.java,11,main
- :EndReceived
-jdbuggerString: completed,10
-step,thread,1,main,running,1,false,true,location,test/foo.java,11,main
- com (completed,10 step,thread,1,main,running,1,false,true,location,test/foo.java,11,main)
-c: completed,10 com (completed,10 step,thread,1,main,running,1,false,true,location,test/foo.java,11,main)
-Processed: completed,10 :EndProcessed
-Completed: commandsToRun (next 1) commandDone 9 commandClock 10
-
-*** next 1
-c: step,thread,1,main,running,1,false,true,location,test/foo.java,11,main com (completed,10 step,thread,1,main,running,1,false,true,location,test/foo.java,11,main)
-Processed: step,thread,1,main,running,1,false,true,location,test/foo.java,11,main :EndProcessed
-** step in thread 1 at test/foo.java:11
-Received: completed,11
-step,thread,1,main,running,1,false,true,location,test/foo.java,12,main
- :EndReceived
-jdbuggerString: completed,11
-step,thread,1,main,running,1,false,true,location,test/foo.java,12,main
- com (completed,11 step,thread,1,main,running,1,false,true,location,test/foo.java,12,main)
-c: completed,11 com (completed,11 step,thread,1,main,running,1,false,true,location,test/foo.java,12,main)
-Processed: completed,11 :EndProcessed
-Completed: commandsToRun nil commandDone 10 commandClock 11
-c: step,thread,1,main,running,1,false,true,location,test/foo.java,12,main com (completed,11 step,thread,1,main,running,1,false,true,location,test/foo.java,12,main)
-Processed: step,thread,1,main,running,1,false,true,location,test/foo.java,12,main :EndProcessed
-** step in thread 1 at test/foo.java:12
-
-*** stack
-Received: error,stack thread-id
-completed,12
- :EndReceived
-jdbuggerString: error,stack thread-id
-completed,12
- com (error,stack thread-id completed,12)
-c: error,stack thread-id com (error,stack thread-id completed,12)
-Processed: error,stack thread-id :EndProcessed
- error,stack thread-id
-c: completed,12 com (error,stack thread-id completed,12)
-Processed: completed,12 :EndProcessed
-Completed: commandsToRun nil commandDone 11 commandClock 12
-
-*** next1
-Received: error,unknown command :13,next1:
-completed,13
- :EndReceived
-jdbuggerString: error,unknown command :13,next1:
-completed,13
- com (error,unknown command :13,next1: completed,13)
-c: error,unknown command :13,next1: com (error,unknown command :13,next1: completed,13)
-Processed: error,unknown command :13,next1: :EndProcessed
- error,unknown command :13,next1:
-c: completed,13 com (error,unknown command :13,next1: completed,13)
-Processed: completed,13 :EndProcessed
-Completed: commandsToRun (stack 1) commandDone 12 commandClock 13
-
-*** stack 1
-Received: stack,1,location,test/foo.java,12,main
-completed,14
- :EndReceived
-jdbuggerString: stack,1,location,test/foo.java,12,main
-completed,14
- com (stack,1,location,test/foo.java,12,main completed,14)
-c: stack,1,location,test/foo.java,12,main com (stack,1,location,test/foo.java,12,main completed,14)
-Processed: stack,1,location,test/foo.java,12,main :EndProcessed
-unknown command stack arguments (1 location test/foo.java 12 main) 
-c: completed,14 com (stack,1,location,test/foo.java,12,main completed,14)
-Processed: completed,14 :EndProcessed
-Completed: commandsToRun nil commandDone 13 commandClock 14
-
-
-*** next 1
-Received: completed,15
-step,thread,1,main,running,1,false,true,location,test/foo.java,13,main
- :EndReceived
-jdbuggerString: completed,15
-step,thread,1,main,running,1,false,true,location,test/foo.java,13,main
- com (completed,15 step,thread,1,main,running,1,false,true,location,test/foo.java,13,main)
-c: completed,15 com (completed,15 step,thread,1,main,running,1,false,true,location,test/foo.java,13,main)
-Processed: completed,15 :EndProcessed
-Completed: commandsToRun (stack 1) commandDone 14 commandClock 15
-
-*** stack 1
-c: step,thread,1,main,running,1,false,true,location,test/foo.java,13,main com (completed,15 step,thread,1,main,running,1,false,true,location,test/foo.java,13,main)
-Processed: step,thread,1,main,running,1,false,true,location,test/foo.java,13,main :EndProcessed
-** step in thread 1 at test/foo.java:13
-Received: stack,1,location,test/foo.java,13,main
-completed,16
- :EndReceived
-jdbuggerString: stack,1,location,test/foo.java,13,main
-completed,16
- com (stack,1,location,test/foo.java,13,main completed,16)
-c: stack,1,location,test/foo.java,13,main com (stack,1,location,test/foo.java,13,main completed,16)
-Processed: stack,1,location,test/foo.java,13,main :EndProcessed
-unknown command stack arguments (1 location test/foo.java 13 main) 
-c: completed,16 com (stack,1,location,test/foo.java,13,main completed,16)
-Processed: completed,16 :EndProcessed
-Completed: commandsToRun nil commandDone 15 commandClock 16

@@ -29,19 +29,15 @@ class parser implements Iterator
     private int       index               = 0;
     private int       number            = -1;
     private String   string              = "";
-    private String   commandId      = "";
-    private String   commandString = "";
+        private String   commandString = "";
     
     public int     getNumber()              { return number; }
     public String getString()                 { return string; }
-    public String getCommandId()        { return commandId; }
     public String getCommandString()  { return commandString; }
     
     public parser(String in)
     {
-        String[] t = in.split(",");
-        commandId = t [0];
-        tokens = t [1].split("[ \t]+");
+        tokens = in.split("[ \t]+");
         index  = 0;
         commandString = in;
     }
