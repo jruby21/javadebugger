@@ -73,13 +73,13 @@ class EventReader extends Thread
                                                + ","
                                                + (msgVal == null ? "" : msgVal.value()));
                         } else if (event instanceof ThreadStartEvent) {
-                            System.out.println("threadstart," 
+                            System.out.println("thread,start," 
                                                + (new thread(((ThreadStartEvent) event).thread())).toString());
                         } else if (event instanceof ThreadDeathEvent) {
-                            System.out.println("threaddeath."
+                            System.out.println("thread,death,"
                                                + (new thread(((ThreadStartEvent) event).thread())).toString());
                         } else if (event instanceof VMStartEvent) {
-                            System.out.println("virtual machine started");
+                            System.out.println("vm,started");
                         } else {
                             ;
                         }

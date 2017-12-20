@@ -23,13 +23,10 @@
       (define-key map (kbd "M-p") 'javadebug-commandring)
       map))
 
-  (defvar proxyProcess nil "the JAVA proxy program which connects to the program to be debugged")
-  (defvar defaultThread nil "the last thread in which we had a breakpoint. use this thread if no thread number is specified in a command")
+  (defvar proxyProcess () "the JAVA proxy program which connects to the program to be debugged")
+  (defvar defaultThread "" "the last thread in which we had a breakpoint. use this thread if no thread number is specified in a command")
 
   (defvar commandsToRun  () "list of commands to send to proxy")
-  (defvar commandClock    0 "logical clock to id command")
-  (defvar commandDone     0 "this command finished") 
-  (defvar stepCommands    () "run these commands after a step command finishes")
 
   (defconst orgTableSeperator     "|----|\n"                                                                 "string to seperate table title from contents")
   (defconst localTableTitle         "Locals\n"                                                              "title tor local variables table")
@@ -40,8 +37,118 @@
   (defconst breakpointHeadline "** "    "reports a breakpoint")
   (defconst commandHeadline  "*** "   "enter a command")
 
-  (defun expectedString (e) (nth 0 e))
-  (defun epectedResponse (e) (nth 1 e))
+  (defconst commandList
+    (list
+     (list "attach"
+           (lambda (c) (or (/= (length c) 3)  (not (string-match "[0-9]+" (nth 2 c)))))
+           "attach host  [port number]"
+           (lambda (c) (format "attach %s %s" (nth 1 c) (nth 2 c)))
+           (lambda (r) (and (string= (car r) "vm")) (string= (nth 1 r) "started")))
+     (list "back"
+           (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
+           "back [thread-id]"
+           (lambda (c)
+             (format
+              "back %s"
+              (if (= (length c) 1) defaultThread (nth 1 c))))
+           (lambda (r) (string= (car r) "step")))
+     (list "break"
+           (lambda (c) (/= (length c) 3))
+           "break class-name <line-number|method name>"
+           (lambda (c) (format "break %s %s" (nth 1 c) (nth 2 c)))
+           (lambda (r) (and (string= (car r) "break")) (string= (nth 1 r) "created")))
+     (list "continue"
+           (lambda (c) (/= (length c) 1))
+           "continue"
+           (lambda (c) (format "continue"))
+           (lambda (r) (string= (car r) "resuming")))
+     (list "frame"
+           (lambda (c) (not (or (= (length c) 1)
+                                 (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
+                                 (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
+           "frame [thread-id] [frame number]"
+           (lambda (c)
+             (format
+              "frame %s %s"
+              (if (= (length c) 1) defaultThread (nth 1 c))
+              (if (or (= (length c) 1)  (= (length c) 2) "0" (nth 2 c)))))
+           (lambda (r) (string= (car r) "frame")))
+     (list "into"
+           (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
+           "into [thread-id]"
+           (lambda (c)
+             (format
+              "into %s"
+              (if (= (length c) 1) defaultThread (nth 1 c))))
+           (lambda (r) (string= (car r) "step")))
+     (list "load"
+           (lambda (c) (/= (length c) 1))
+           "run"
+           (lambda (c) (format "run"))
+           (lambda (r) (string= (car r) "classloaded")))
+     (list "next"
+           (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
+           "next [thread-id]"
+           (lambda (c)
+             (format
+              "next %s"
+              (if (= (length c) 1) defaultThread (nth 1 c))))
+           (lambda (r) (string= (car r) "step")))
+     (list "prepare"
+           (lambda (c) (/= (length c) 2))
+           "prepare [class name]"
+           (lambda (c) (format "prepare %s" (nth 1 c)))
+           (lambda (r) (string= (car r) "prepared")))
+     (list "quit"
+           (lambda (c) (/= (length c) 1))
+           "quit"
+           (lambda (c) "quit")
+           (lambda (r) (string= (car r) "proxy"))) 
+     (list "run"
+           (lambda (c) (/= (length c) 1))
+           "run"
+           (lambda (c) (format "run"))
+           (lambda (r) (string= (car r) "resuming")))
+     (list "stack"
+           (lambda (c) (or (> (length c) 2)  (not (string-match "[0-9]+" (nth 1 c)))))
+           "stack [thread-id]"
+           (lambda (c)
+             (format
+              "stack %s"
+              (if (= (length c) 1) defaultThread (nth 1 c))))
+           (lambda (r) (string= (car r) "stack")))
+     (list "this"
+           (lambda (c) (not (or (= (length c) 1)
+                                (and (= (length c) 2)  (string-match "[0-9]+" (nth 1 c)))
+                                (and (= (length c) 3)   (string-match "[0-9]+" (nth 1 c)) (string-match "[0-9]+" (nth 2 c))))))
+           "this [thread-id] [frame number]"
+           (lambda (c)
+             (format
+              "this %s %s"
+              (if (= (length c) 1) defaultThread (nth 1 c))
+              (if (or (= (length c) 1)  (= (length c) 2) "0" (nth 2 c)))))
+           (lambda (r) (string= (car r) "this)")))
+     (list "thread"
+           (lambda (c) (or (> (length c) 2)  
+                           (and (= (length c) 1)
+                                (not (string-match "[0-9]+" (nth 1 c)))
+                                (not (string-match "all" (nth 1 c))))))
+           "thread [thread-id] or thread all"
+           (lambda (c)
+             (format
+              "thread %s"
+              (if (= (length c) 1) defaultThread (nth 1 c))))
+           (lambda (r) (string= (car r) "thread"))))
+    "all the commands we can send to the proxy")
+
+  (defun commandName (e) (nth 0 e))
+  (defun commandIsBadP (e f)  (funcall (nth 1 e) f))
+  (defun commandTemplate (e) (nth 2 e))
+  (defun commandFinalForm (e f)  (funcall (nth 3 e) f))
+  (defun commandFinished (e f) (funcall (nth 4 e) f))
+
+  (defvar commandHashMap () "hash map containing the contents of the commandList")
+  (defvar runningCommand   () "the command which is active in the proxy")
 
   (define-derived-mode javadebug-mode
     org-mode "JavaDebug"
@@ -49,27 +156,43 @@
 
   (defun startProc (px src mn)
     (interactive "Dproxy directory: \nDsource root:: \nMmain class ")
+    (message "startProc")
     (goto-char (point-max))
     (insert (concat "\n\n" sessionHeadline "Starting debugger session " (current-time-string) ".\n\tProxy directory: " px ".\n\tSource root: " src ".\n\tMain class: " mn ".\n\n"));
     (cd (file-name-as-directory px))
     (delete-other-windows)
     (javadebug-mode)
     (setq sourceWindow (split-window-below))
-    (setq stateStack (list "start" "basic"))
+    (setq stateStack (list "basic"))
     (setq jdbuggerString "")
     (setq javadebug-ring (make-ring 8))
     (setq javadebug-ring-index 0)
     (setq commandsToRun ())
-    (setq commandClock 0)
-    (setq commandDone 0)
-    (setq stepCommands ())
-    (setq expected
+    (setq commandHashMap (ht-create))
+
+    (dolist (v commandList)
+      (ht-set commandHashMap (commandName v) v))
+
+    ;; wait until the proxy starts up
+
+    (setq runningCommand
           (list
-           (list "proxy,started" "attach localhost 8000")
-           (list "virtual machine started" (concat "prepare " mn))
-           (list "prepare class" "run")
-           (list "classloaded" (concat "break " mn " main"))
-           (list "breakpoint created at"  "continue")))
+           ()
+           (list "proxy"
+                 (lambda (c) ())
+                 ""
+                 (lambda (c) "")
+                 (lambda (r) (and (string= (car r) "proxy") (string= (nth 1 r) "started"))))
+           ()))
+
+    (javadebug-add-commands
+     (list
+      "attach localhost 8000"
+      (concat "prepare " mn)
+     "load"
+     (concat "break " mn " main")
+     "continue"))
+
     (setq proxyProcess
           (start-process 
            "jdbProxy" 
@@ -93,7 +216,52 @@
           (org-return)
         (beginning-of-line)
         (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
-        (javadebug-send-command com))))
+        (javadebug-add-commands (split-string com ";" 't)))))
+
+  (defun javadebug-add-commands (com)
+    (let ((r (javadebug-check-commands com)))
+      (if (javadebug-check-errors r)
+          (dolist (v (javadebug-check-errors r))
+            (writeStringToBuffer proxyProcess (concat v "\n")))
+        (setq commandsToRun (append commandsToRun (javadebug-check-good-commands r)))
+        (message "javadebug-add-commands commandsToRun %s runningCommand %s" commandsToRun runningCommand)
+        (javadebug-execute-command))))
+
+  (defun javadebug-check-commands (cm)
+    (let ((checkErrors ())
+          (goodCommands ()))
+      (dolist (v cm)
+        (let* ((c (split-string v " "  't))
+               (commandEntry (ht-get commandHashMap (car c))))
+          (if (null commandEntry)
+              (setq checkErrors (append checkErrors (list (concat "error - no such command: " v))))
+            (if (commandIsBadP commandEntry c)
+                (setq checkErrors (append checkErrors (list (concat "error - bad command format " v ". Try "  (commandTemplate commandEntry)))))
+              (setq goodCommands (append goodCommands (list (list c commandEntry))))
+              (message "javadebug-check-commands c %s commandEntry %s goodCommands %s commandsToRun %s" c commandEntry goodCommands commandsToRun)))))
+      (list goodCommands checkErrors)))
+
+  (defun javadebug-check-good-commands (l) (nth 0 l))
+  (defun javadebug-check-errors (l) (nth 1 l))
+
+  (defun javadebug-command-split (l) (nth 0 l))
+  (defun javadebug-command-entry (l) (nth 1 l))
+  (defun javadebug-command-finished (l) (nth 2 l))
+
+  (defun javadebug-execute-command ()
+    (message "javadebug-execute-command 1 commandsToRun %s" commandsToRun)
+    (if (and commandsToRun (null runningCommand))
+        (let* ((c (car commandsToRun))
+               (finished ""))
+          (setq commandsToRun (cdr commandsToRun))
+          (message "javadebug-execute-command 1 commandsToRun %s" commandsToRun)
+          (message "javadebug-execute-command c %s commandsToRun %s " c commandsToRun)
+          (setq finished (commandFinalForm (javadebug-command-entry c) (javadebug-command-split c)))
+          (message "javadebug-execute-command finished %s " finished)
+          (ring-insert javadebug-ring finished)
+          (writeStringToBuffer proxyProcess (concat "\n" commandHeadline finished "\n"))
+          (setq runningCommand (list  (javadebug-command-split c) (javadebug-command-entry c) finished))
+          (process-send-string proxyProcess (concat  finished "\n")))))
 
   (defun javadebug-commandring ()
     (interactive)
@@ -110,33 +278,6 @@
                 (setq javadebug-ring-index 0))
             (insert (ring-ref javadebug-ring javadebug-ring-index))
             (setq javadebug-ring-index (1+ javadebug-ring-index))))))
-
-  (defun javadebug-send-command (in)
-    (let ((com (split-string in ";"))
-          (cl     ())
-          (c     ()))
-      (while (setq c (car com))
-        (setq c (s-trim c))
-        (setq com (cdr com))
-        (cond ((or
-                (s-starts-with? "next" c t)
-                (s-starts-with? "back" c t)
-                (s-starts-with? "into" c t))
-              (setq stepCommands (append stepCommands com))
-              (setq com ()))
-              (t (setq cl (append cl (list c))))))
-      (setq commandsToRun (append commandsToRun cl)))
-      (javadebug-send-next-command))
-
-  (defun javadebug-send-next-command ()
-    (if (and commandsToRun
-             (= commandClock commandDone))
-        (let ((c (car commandsToRun)))
-          (setq commandsToRun (cdr commandsToRun))
-          (ring-insert javadebug-ring c)
-          (writeStringToBuffer proxyProcess (concat "\n" commandHeadline c "\n"))
-          (setq commandClock (1+ commandClock))
-          (process-send-string proxyProcess (concat (number-to-string commandClock) ","  c "\n")))))
 
   (defun writeStringToBuffer (proc string)
     (when (buffer-live-p (process-buffer proc))
@@ -162,7 +303,7 @@
   (defun dataLayout (args)
     (if args
         (let ((s "| ")
-              (stack nil)
+              (stack ())
               (rc 0)
               (ac 0))
           (push (list rc args) stack)
@@ -192,14 +333,14 @@
       ""))
 
   (defun javadebug-insertion-filter (proc string)
-    (writeStringToBuffer proc (concat "Received: "  string " :EndReceived\n"))
+    (message "Received: %s :EndReceived %s" string commandsToRun)
     (setq jdbuggerString (concat jdbuggerString string))
     (if (s-ends-with? "\n" jdbuggerString)
         (let ((com (split-string jdbuggerString "\n" 't)))
-          (writeStringToBuffer proc (format "jdbuggerString: %s com %s\n" jdbuggerString com))
+          (message "javadebug-insertion-filter jdbuggerString: %s com %s" jdbuggerString com)
           (setq jdbuggerString ())
           (dolist (c com)
-            (writeStringToBuffer proc (format "c: %s com %s\n" c com))
+            (message "javadebug-insertion-filter c: %s com %s" c com)
             (if (not (s-blank? c)) (jdbAction proc c)))
           (when (and (buffer-live-p (process-buffer proc))
                      (get-buffer-window (process-buffer proc)))
@@ -208,49 +349,64 @@
             (insert "\n")))))
 
   (defun jdbAction (proc in)
-    (writeStringToBuffer proc (concat "Processed: "  in " :EndProcessed\n"))
+    (message "jdbAction Processed: %s :EndProcessed\nrunningCommand %s commandsToRun %s" in runningCommand commandsToRun)
     (let ((state (car stateStack))
           (args (split-string in ",")))
       (cond ((string= (car args) "error")
              (writeStringToBuffer proc (concat " "  in "\n")))
-            ((string= (car args) "completed")
-             (writeStringToBuffer proc (format "Completed: commandsToRun %s commandDone %s commandClock %s\n" commandsToRun commandDone commandClock))
-             (setq commandDone (string-to-number (nth 1 args)))
-             (javadebug-send-next-command))
             ((string= state "basic")
-             (basicState proc (car args) (cdr args)))
-            ((string= state "start")
-             (startState proc in)))))
+             (basicState proc (car args) (cdr args))))
+      (message "jdbAction 2 commandsToRun %s" commandsToRun)
+      (if (and runningCommand
+               (or (string= (car args) "error")
+                   (commandFinished (javadebug-command-entry runningCommand) args)))
+          (progn
+            (message "jdbAction 3 commandsToRun %s" commandsToRun)
+            (setq runningCommand ())
+            (javadebug-execute-command)))))
 
   (defun basicState (proc act args)
-    (let ((retstring ()))
-      (cond ((string= act "breakpoint")
-             (reportBreak args))
-            ((string= act "step")
-             (reportBreak args)
-             (setq commandsToRun (append stepCommands commandsToRun))
-             (javadebug-send-next-command))
-            ((string= act "proxy")
-             (if (string= "exit" (car args))
-                 (delete-process proc))
-             (if (string= "started" (car args))
-                 (writeStringToBuffer proc "Debugger proxy started\n")))
-            ((string= act "break") )
-            ((string= act "resuming") )
-            ((string= act "frame") )
-            ((or (string= act "local") (string= act "argument"))
-             (writeOrgTableToBuffer
-              proc
-              (if (string= act "local") localTableTitle argumentsTableTitle)
-              ""
-              (if (and args (car args)) (nth 0 (read-from-string (car args))) nil)))
-            ((string= act "thread")
-             (let ((b nil))
-               (while (and args (threadDescriptor args))
-                 (setq b (cons (list (threadID args)  (threadName args) (threadState args)  (threadFrames args)  (threadBreakpoint args) (threadSuspended args)) b))
-                 (setq args (skipThread args)))
-               (writeOrgTableToBuffer proc threadTableTitle orgTableSeperator b)))
-            (t (writeStringToBuffer proc (format "unknown response %s arguments %s \n" act (if args args "null")))))))
+    (message "basicState commandsToRun %s" commandsToRun)
+    (cond 
+     ((string= act "break")
+      (if (string= (car args)  "created") 
+          (writeStringToBuffer proc (concat "Breakpoint created at " (nth 1 args) "\n"))))
+     ((string= act "breakpoint")
+      (reportBreak args))
+     ((string= act "classloaded")
+      (writeStringToBuffer proc (concat "Class " (car args) " loaded.\n")))
+     ((string= act "step")
+      (reportBreak args))
+     ((string= act "proxy")
+      (if (string= "exit" (car args))
+          (progn
+            (delete-process proc)
+            (writeStringToBuffer proc "Debugger proxy exited\n")))
+      (if (string= "started" (car args))
+          (writeStringToBuffer proc "Debugger proxy started\n")))
+     ((string= act "vm")
+      (if (string= "started" (car args))
+          (writeStringToBuffer proc "virtual machine started\n")
+        (if (string= "created" (car args))
+            (writeStringToBuffer proc "virtual machine created\n"))))
+     ((string= act "frame") )
+     ((or (string= act "local") (string= act "argument"))
+      (writeOrgTableToBuffer
+       proc
+       (if (string= act "local") localTableTitle argumentsTableTitle)
+       ""
+       (if (and args (car args)) (nth 0 (read-from-string (car args))) ())))
+     ((string= act "resuming") 
+      (writeStringToBuffer proc "virtual machine resuming operation.\n"))
+     ((string= act "prepared") 
+      (writeStringToBuffer proc (concat "class prepare request for" (nth 1 args) "\n")))
+     ((string= act "thread")
+      (let ((b ()))
+        (while (and args (threadDescriptor args))
+          (setq b (cons (list (threadID args)  (threadName args) (threadState args)  (threadFrames args)  (threadBreakpoint args) (threadSuspended args)) b))
+          (setq args (skipThread args)))
+        (writeOrgTableToBuffer proc threadTableTitle orgTableSeperator b)))
+     (t (writeStringToBuffer proc (format "error - unknown response %s arguments %s \n" act (if args args "null"))))))
 
   (defun reportBreak (args)
     (setq defaultThread (threadID (breakpointThread args)))
@@ -295,12 +451,6 @@
   (defun nameValuePairValue (args) (nth 1 args))
   (defun skipNameValuePair   (args) (nthcdr 2 args))
 
-  (defun startState (proc in)
-    (if (string-prefix-p (expectedString (car expected)) in)
-        (javadebug-send-command (expectedResponse (pop expected))))
-    (if (null expected)
-        (pop stateStack)))
-
   (defun setSourceFileWindow (proc file line)
     (let ((bug (find-file-noselect file)))
       (when (and bug (buffer-live-p (process-buffer proc)))
@@ -327,121 +477,117 @@
           (setq win (if wl (car wl) (car (window-list))))
           (set-window-buffer win buffer)))
       win))
-
 #+END_SRC
 
+#+RESULTS:
+: winForOtherBuffer
 
 
-* Starting debugger session Sat Dec 16 20:08:40 2017.
+
+
+Process jdbProxy killed
+
+
+* Starting debugger session Tue Dec 19 19:23:16 2017.
 	Proxy directory: /home/jruby/tmp/jdb/.
 	Source root: /home/jruby/tmp/jdb/.
 	Main class: test.foo.
 
-Received: proxy,started
- :EndReceived
-jdbuggerString: proxy,started
- com (proxy,started)
-c: proxy,started com (proxy,started)
-Processed: proxy,started :EndProcessed
+
+
+* Starting debugger session Tue Dec 19 19:23:59 2017.
+	Proxy directory: /home/jruby/tmp/jdb/.
+	Source root: /home/jruby/tmp/jdb/.
+	Main class: test.foo.
+
+
+
+* Starting debugger session Tue Dec 19 19:25:13 2017.
+	Proxy directory: /home/jruby/tmp/jdb/.
+	Source root: /home/jruby/tmp/jdb/.
+	Main class: test.foo.
+
+
+
+* Starting debugger session Tue Dec 19 19:27:55 2017.
+	Proxy directory: /home/jruby/tmp/jdb/.
+	Source root: /home/jruby/tmp/jdb/.
+	Main class: test.foo.
+
+
+
+* Starting debugger session Tue Dec 19 19:31:00 2017.
+	Proxy directory: /home/jruby/tmp/jdb/.
+	Source root: /home/jruby/tmp/jdb/.
+	Main class: test.foo.
+
+
+Process jdbProxy<1> killed
+Debugger proxy started
 
 *** attach localhost 8000
 
-Received: attached,created virtual machine :EndReceived
-Received: 
-completed
- :EndReceived
-jdbuggerString: attached,created virtual machine
-completed
- com (attached,created virtual machine completed)
-c: attached,created virtual machine com (attached,created virtual machine completed)
-Processed: attached,created virtual machine :EndProcessed
-c: completed com (attached,created virtual machine completed)
-Processed: completed :EndProcessed
-Completed: commandsToRun nil proxyAvailable nil
+virtual machine created
 
-Received: virtual machine started
- :EndReceived
-jdbuggerString: virtual machine started
- com (virtual machine started)
-c: virtual machine started com (virtual machine started)
-Processed: virtual machine started :EndProcessed
+virtual machine started
 
 *** prepare test.foo
 
-Received: prepare class test.foo
-completed
- :EndReceived
-jdbuggerString: prepare class test.foo
-completed
- com (prepare class test.foo completed)
-c: prepare class test.foo com (prepare class test.foo completed)
-Processed: prepare class test.foo :EndProcessed
-c: completed com (prepare class test.foo completed)
-Processed: completed :EndProcessed
-Completed: commandsToRun (run) proxyAvailable nil
+class prepare request for
 
 *** run
 
-Received: resuming target program
- :EndReceived
-jdbuggerString: resuming target program
- com (resuming target program)
-c: resuming target program com (resuming target program)
-Processed: resuming target program :EndProcessed
+virtual machine resuming operation.
 
-Received: completed
- :EndReceived
-jdbuggerString: completed
- com (completed)
-c: completed com (completed)
-Processed: completed :EndProcessed
-Completed: commandsToRun nil proxyAvailable nil
+error - unknown response VMDeath arguments null 
 
-Received: classloaded,test.foo :EndReceived
-Received: 
- :EndReceived
-jdbuggerString: classloaded,test.foo
- com (classloaded,test.foo)
-c: classloaded,test.foo com (classloaded,test.foo)
-Processed: classloaded,test.foo :EndProcessed
+error - unknown response VMDisconnectEvent arguments null 
+error - unknown response Exception arguments (com.sun.jdi.VMDisconnectedException) 
+
+
+
+* Starting debugger session Tue Dec 19 19:47:45 2017.
+	Proxy directory: /home/jruby/tmp/jdb/.
+	Source root: /home/jruby/tmp/jdb/.
+	Main class: test.foo.
+
+
+Process jdbProxy killed
+
+Process jdbProxy killed
+Debugger proxy started
+
+*** attach localhost 8000
+
+virtual machine created
+
+virtual machine started
+
+*** prepare test.foo
+
+class prepare request for
+
+*** run
+
+virtual machine resuming operation.
+
+Class test.foo loaded.
 
 *** break test.foo main
 
-Received: breakpoint created at test.foo:10
- :EndReceived
-jdbuggerString: breakpoint created at test.foo:10
- com (breakpoint created at test.foo:10)
-c: breakpoint created at test.foo:10 com (breakpoint created at test.foo:10)
-Processed: breakpoint created at test.foo:10 :EndProcessed
-
-Received: completed
- :EndReceived
-jdbuggerString: completed
- com (completed)
-c: completed com (completed)
-Processed: completed :EndProcessed
-Completed: commandsToRun (continue) proxyAvailable nil
+Breakpoint created at test.foo:10
 
 *** continue
 
-Received: resuming target program
-completed
- :EndReceived
-jdbuggerString: resuming target program
-completed
- com (resuming target program completed)
-c: resuming target program com (resuming target program completed)
-Processed: resuming target program :EndProcessed
-unknown response resuming target program arguments null 
-c: completed com (resuming target program completed)
-Processed: completed :EndProcessed
-Completed: commandsToRun nil proxyAvailable nil
+virtual machine resuming operation.
 
-Received: breakpoint,thread,1,main,running,1,true,true,location,test/foo.java,10,main
- :EndReceived
-jdbuggerString: breakpoint,thread,1,main,running,1,true,true,location,test/foo.java,10,main
- com (breakpoint,thread,1,main,running,1,true,true,location,test/foo.java,10,main)
-c: breakpoint,thread,1,main,running,1,true,true,location,test/foo.java,10,main com (breakpoint,thread,1,main,running,1,true,true,location,test/foo.java,10,main)
-Processed: breakpoint,thread,1,main,running,1,true,true,location,test/foo.java,10,main :EndProcessed
 ** breakpoint in thread 1 at test/foo.java:10
+
+
+
+*** quit
+error - unknown response VMDisconnectEvent arguments null 
+
+error - unknown response Exception arguments (com.sun.jdi.VMDisconnectedException) 
+Debugger proxy exited
 

@@ -50,7 +50,6 @@ public class debugger
                 {
                     parser p = new parser(s);
                     expr(p);
-                    System.out.println("completed");
                 }
         } catch (IllegalArgumentException e) {
             System.out.println("error,IllegalArgumentException," + e.toString());
@@ -256,7 +255,7 @@ public class debugger
 
                         break;
 
-                    case PREPARE
+                    case PREPARE:
 
                         if (vm == null)
 
@@ -426,7 +425,7 @@ public class debugger
 
             else
 
-                System.out.println("attached,created virtual machine");
+                System.out.println("vm,created");
         } catch (IOException | IllegalConnectorArgumentsException e) {
             System.out.println("exception, " + e.toString());
         }
