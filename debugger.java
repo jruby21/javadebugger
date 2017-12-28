@@ -26,10 +26,13 @@ import java.util.Map;
  
 public class debugger
 {
-    private VirtualMachine vm = null;
-    private EventReader    er = null;
+    public static final String NumberProperty = "breakpointNumber";
     
-    public static void main(String args[]) throws Exception
+    private VirtualMachine vm       = null;
+    private EventReader    er        = null;
+    private int                 bpcount = 0;
+
+public static void main(String args[]) throws Exception
 
     {
         debugger d = new debugger();
@@ -97,20 +100,6 @@ public class debugger
 
                             attach(hostname, port);
                         
-                        break;
-
-                    case INTO:
-
-                        if (parse.next() == parser.TOKEN.STRING)
-
-                            step(parse.getString(),
-                                 StepRequest.STEP_LINE,
-                                 StepRequest.STEP_INTO);
-                                    
-                        else
-
-                            System.out.println("error,missing thread-id");
-
                         break;
                         
                     case BACK:
@@ -200,11 +189,14 @@ public class debugger
                                     }
 
                                 if (br == null)
-                                    
-                                    br = vm.eventRequestManager().createBreakpointRequest(bl);
+
+                                    {
+                                        br = vm.eventRequestManager().createBreakpointRequest(bl);
+                                        br.putProperty(NumberProperty, new Integer(bpcount++));
+                                    }
 
                                 br.enable();
-                                System.out.println("break,created," + bl.toString());
+                                System.out.println("break," + br.getProperty(NumberProperty).toString() + ",created," + bl.toString());
                             } catch (NumberFormatException e) {
                             System.out.println("error,line nunmber must be an integer.");
                         } catch (AbsentInformationException a) {
@@ -212,6 +204,21 @@ public class debugger
                         }
 
                         break;
+
+
+                    case BREAKS:
+                        
+                        List<BreakpointRequest> brs = vm.eventRequestManager().breakpointRequests();
+                        BreakpointRequest []      bps = new BreakpointRequest [500];
+
+                        System.out.print("breakpoints");
+                        
+                        for (BreakpointRequest b : brs)  bps [((Integer) b.getProperty(NumberProperty)).intValue()] = b;
+                        for (int i = 0; i != bps.length; i++)  if (bps [i] != null)  System.out.print(",breakpoint," + i + "," + (new location(bps [i].location())).toString());
+
+                        System.out.print("\n");
+                        break;
+
                         
                     case FRAME:
 
@@ -238,6 +245,20 @@ public class debugger
                                     System.out.println("error,frame id must be an integer");
                                 }
                             }
+
+                        break;
+
+                    case INTO:
+
+                        if (parse.next() == parser.TOKEN.STRING)
+
+                            step(parse.getString(),
+                                 StepRequest.STEP_LINE,
+                                 StepRequest.STEP_INTO);
+                                    
+                        else
+
+                            System.out.println("error,missing thread-id");
 
                         break;
 

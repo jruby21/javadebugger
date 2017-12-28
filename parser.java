@@ -4,18 +4,22 @@ import java.util.Scanner;
 
 class parser implements Iterator
 {
-    public enum TOKEN {ALL, ATTACH, BACK, BREAK, CONTINUE, DONE, FRAME, INTO, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
+    public enum TOKEN {ALL, ARGUMENTS, ATTACH, BACK, BREAK, BREAKS, CLEAR, CONTINUE, DONE, FRAME, INTO, LOCALS, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
 
     static HashMap<String, TOKEN> keywords = new HashMap<String, TOKEN>();
 
     static {
         keywords.put("all",         TOKEN.ALL);
+        keywords.put("arguments",  TOKEN.ARGUMENTS);
         keywords.put("attach",    TOKEN.ATTACH);
         keywords.put("back",      TOKEN.BACK);
         keywords.put("break",     TOKEN.BREAK);
+        keywords.put("breaks",    TOKEN.BREAKS);
+        keywords.put("clear",      TOKEN.CLEAR);
         keywords.put("continue", TOKEN.CONTINUE);
         keywords.put("frame",     TOKEN.FRAME);
         keywords.put("into",        TOKEN.INTO);
+        keywords.put("locals",     TOKEN.LOCALS);
         keywords.put("next",       TOKEN.NEXT);
         keywords.put("prepare",  TOKEN.PREPARE);
         keywords.put("quit",        TOKEN.QUIT);

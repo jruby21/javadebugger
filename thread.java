@@ -14,7 +14,7 @@ class thread
     {
         return tr;
     }
-    
+
     public String frame(int frameNumber)
     {
         Frame                f = getFrame(frameNumber);
@@ -50,9 +50,9 @@ class thread
             + tr.uniqueID()
             + ","
             + ((f.loc != null) ? (new location(f.loc)).toString() : "location,none")
-            + "\nargument,("
+            + "\narguments,("
             + ab.toString()
-            + ")\nlocal,("
+            + ")\nlocals,("
             + lb.toString() + ")\n";
     }
 
