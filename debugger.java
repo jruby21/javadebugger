@@ -368,37 +368,13 @@ public static void main(String args[]) throws Exception
                         
                     case THREAD:
 
-                        tok0 = parse.next();
-                        
-                        if (tok0 == parser.TOKEN.ALL)
+                        System.out.print("threads");
 
-                            {
-                                System.out.print("thread");
+                        for (ThreadReference thr: vm.allThreads())
 
-                                for (ThreadReference thr: vm.allThreads())
+                            System.out.print("," + (new thread(thr)).toString());
 
-                                    System.out.print("," + (new thread(thr)).toString());
-
-                                System.out.print("\n");
-                            }
-
-                        else if (tok0 == parser.TOKEN.STRING)
-
-                            {
-                                tr = getThread(parse.getString());
-
-                                if (tr != null)
-
-                                    System.out.println("thread," + tr.toString());
-
-                                else
-
-                                    System.out.println("error,no thread with id " + parse.getString());
-                            }
-
-                        else
-
-                            System.out.println("error,thread (all | thread-id");
+                        System.out.print("\n");
 
                         break;
 

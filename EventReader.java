@@ -40,10 +40,13 @@ class EventReader extends Thread
                     while (it.hasNext()) {
 
                         Event event = (Event) it.next();
-                    
+
                         if (event instanceof BreakpointEvent) {
                             BreakpointEvent bp = (BreakpointEvent) event;
-                            System.out.println("breakpoint," + (new thread(bp.thread())).toString() + "," + (new location(bp.location())).toString());
+                            System.out.println("breakpoint,"
+                                               + ((Integer) bp.request().getProperty(debugger.NumberProperty)).intValue()
+                                               + "," + (new thread(bp.thread())).toString()
+                                               + "," + (new location(bp.location())).toString());
                         } else if (event instanceof StepEvent) {
                             StepEvent se = (StepEvent) event;
                             System.out.println("step," + (new thread(se.thread())).toString() + "," + (new location(se.location())).toString());

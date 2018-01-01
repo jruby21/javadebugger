@@ -1,0 +1,712 @@
+* Java Debugger
+
+** javadebug mode
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(require 'bm)
+(require 'dash)
+(require 'ht)
+(require 's)
+
+(defvar javadebug-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") 'javadebug-newline)
+    (define-key map (kbd "M-p") 'javadebug-commandring)
+    map))
+
+(define-derived-mode javadebug-mode
+  org-mode "JavaDebug"
+  "Major mode java debugger.")
+
+(defvar defaultThread "" "the last thread in which we had a breakpoint. use this thread if no thread number is specified in a command")
+
+#+END_SRC
+
+** The Proxy
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defvar proxyProcess () "the JAVA proxy program which connects to the program to be debugged")
+#+END_SRC
+
+*** Start the proxy
+
+The proxy receives commands from this elisp program sends commands to the proxy
+on stdin and replies on stdout.
+
+
+#+BEGIN_SRC emacs-lisp :noweb-ref start-proxy
+
+;; Here's a special command that just waits for the proxy to signal that it
+;; started.
+
+(setq commandsToRun ())
+(setq jdbuggerString "")
+
+(setq runningCommand
+      (makeCommandDescription
+       "proxy"
+       "proxy"
+       (list "proxy")
+       "proxy"
+       (list "proxy"
+             (lambda (c) ())
+             ""
+             (lambda (c) "")
+             (lambda (r) (and (string= (car r) "proxy") (string= (nth 1 r) "started"))))))
+
+(setq proxyProcess
+      (start-process 
+       "jdbProxy" 
+       (current-buffer)
+       "/home/jruby/tools/jdk1.8.0_131/bin/java" 
+       "-cp" 
+       "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
+       "debugger"))
+
+(set-process-filter proxyProcess 'javadebug-insertion-filter)
+#+END_SRC
+
+*** Commands Sent to the Proxy
+
+**** Comands the Debugger Supports
+
+A supported command is described by a CommandEntry
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defun javadebug-makeCommandEntry (entryKey commandCheck commandDescription finishedCommand commandCompleted)
+  (list entryKey commandCheck commandDescription finishedCommand commandCompleted))
+
+(defun javadebug-getEntryKey                   (c) (nth 0 c)) 
+(defun javadebug-getCommandCheck        (c) (nth 1 c)) 
+(defun javadebug-getCommandDescription (c) (nth 2 c)) 
+(defun javadebug-getFinishedCommand     (c) (nth 3 c)) 
+(defun javadebug-getCommandCompleted  (c) (nth 4 c))
+
+(defun javadebug-badCommandP    (e f)    (funcall (javadebug-getCommandCheck e) f))
+(defun javadebug-finalCommand     (e f)    (funcall (javadebug-getFinishedCommand e) f))
+(defun javadebug-checkProxyDone  (e f)    (funcall (javadebug-getCommandCompleted e) f))
+
+#+END_SRC
+
+Support commands are kept in a hash table
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defconst commandHashMap 
+  ((lambda (x)
+     (let ((h (ht-create)))
+       (mapc 
+        (lambda (c) (ht-set h (javadebug-getEntryKey c) c))
+        x)
+       h))
+  (list
+   (javadebug-makeCommandEntry "arguments"
+                               (lambda (c) (not (or (= (length c) 1)
+                                                    (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
+                                                    (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
+                               "arguments [thread-id] [frame number]"
+                               (lambda (c)
+                                 (format
+                                  "frame %s %s"
+                                  (if (= (length c) 1) defaultThread (nth 1 c))
+                                  (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c))))
+                               (lambda (r) (string= (car r) "arguments")))
+   (javadebug-makeCommandEntry "attach"
+                               (lambda (c) (or (/= (length c) 3)  (not (string-match "[0-9]+" (nth 2 c)))))
+                               "attach host  [port number]"
+                               (lambda (c) (format "attach %s %s" (nth 1 c) (nth 2 c)))
+                               (lambda (r) (and (string= (car r) "vm")) (string= (nth 1 r) "started")))
+   (javadebug-makeCommandEntry "back"
+                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
+                               "back [thread-id]"
+                               (lambda (c)
+                                 (format
+                                  "back %s"
+                                  (if (= (length c) 1) defaultThread (nth 1 c))))
+                               (lambda (r) (string= (car r) "step")))
+   (javadebug-makeCommandEntry "break"
+                               (lambda (c) (/= (length c) 3))
+                               "break class-name <line-number|method name>"
+                               (lambda (c) (format "break %s %s" (nth 1 c) (nth 2 c)))
+                               (lambda (r) (and (string= (car r) "break")) (string= (nth 2 r) "created")))
+   (javadebug-makeCommandEntry "breaks"
+                               (lambda (c) (/= (length c) 1))
+                               "breaks"
+                               (lambda (c) "breaks")
+                               (lambda (r) (string= (car r) "breakpoints")))
+   (javadebug-makeCommandEntry "continue"
+                               (lambda (c) (/= (length c) 1))
+                               "continue"
+                               (lambda (c) (format "continue"))
+                               (lambda (r) (string= (car r) "resuming")))
+   (javadebug-makeCommandEntry "frame"
+                               (lambda (c) (not (or (= (length c) 1)
+                                                    (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
+                                                    (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
+                               "frame [thread-id] [frame number]"
+                               (lambda (c)
+                                 (format
+                                  "frame %s %s"
+                                  (if (= (length c) 1) defaultThread (nth 1 c))
+                                  (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c))))
+                               (lambda (r) (string= (car r) "frame")))
+   (javadebug-makeCommandEntry "into"
+                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
+                               "into [thread-id]"
+                               (lambda (c)
+                                 (format
+                                  "into %s"
+                                  (if (= (length c) 1) defaultThread (nth 1 c))))
+                               (lambda (r) (string= (car r) "step")))
+   (javadebug-makeCommandEntry "load"
+                               (lambda (c) (/= (length c) 1))
+                               "run"
+                               (lambda (c) (format "run"))
+                               (lambda (r) (string= (car r) "classloaded")))
+   (javadebug-makeCommandEntry "locals"
+                               (lambda (c) (not (or (= (length c) 1)
+                                                    (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
+                                                    (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
+                               "locals [thread-id] [frame-number]"
+                               (lambda (c)
+                                 (format
+                                  "frame %s %s"
+                                  (if (= (length c) 1) defaultThread (nth 1 c))
+                                  (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c))))
+                               (lambda (r) (string= (car r) "locals")))
+   (javadebug-makeCommandEntry "next"
+                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
+                               "next [thread-id]"
+                               (lambda (c)
+                                 (format
+                                  "next %s"
+                                  (if (= (length c) 1) defaultThread (nth 1 c))))
+                               (lambda (r) (string= (car r) "step")))
+   (javadebug-makeCommandEntry "prepare"
+                               (lambda (c) (/= (length c) 2))
+                               "prepare [class name]"
+                               (lambda (c) (format "prepare %s" (nth 1 c)))
+                               (lambda (r) (string= (car r) "prepared")))
+   (javadebug-makeCommandEntry "quit"
+                               (lambda (c) (/= (length c) 1))
+                               "quit"
+                               (lambda (c) "quit")
+                               (lambda (r) (string= (car r) "proxy"))) 
+   (javadebug-makeCommandEntry "run"
+                               (lambda (c) (/= (length c) 1))
+                               "run"
+                               (lambda (c) (format "run"))
+                               (lambda (r) (string= (car r) "resuming")))
+   (javadebug-makeCommandEntry "stack"
+                               (lambda (c) (or (> (length c) 2)  (not (string-match "[0-9]+" (nth 1 c)))))
+                               "stack [thread-id]"
+                               (lambda (c)
+                                 (format
+                                  "stack %s"
+                                  (if (= (length c) 1) defaultThread (nth 1 c))))
+                               (lambda (r) (string= (car r) "stack")))
+   (javadebug-makeCommandEntry "this"
+                               (lambda (c) (not (or (= (length c) 1)
+                                                    (and (= (length c) 2)  (string-match "[0-9]+" (nth 1 c)))
+                                                    (and (= (length c) 3)   (string-match "[0-9]+" (nth 1 c)) (string-match "[0-9]+" (nth 2 c))))))
+                               "this [thread-id] [frame number]"
+                               (lambda (c)
+                                 (format
+                                  "this %s %s"
+                                  (if (= (length c) 1) defaultThread (nth 1 c))
+                                  (if (or (= (length c) 1)  (= (length c) 2) "0" (nth 2 c)))))
+                               (lambda (r) (string= (car r) "this)")))
+   (javadebug-makeCommandEntry "threads"
+                               (lambda (c) (/= (length c) 1))
+                               "threads"
+                               (lambda (c) "threads")
+                               (lambda (r) (string= (car r) "threads"))))))
+#+END_SRC
+
+**** Describing a Command About to be Executed
+
+A command about to be executed or being executed is described as a list.
+
+The contents of the list are:
+
+0. the comand key in the hash table commandList
+1. the command as it was entered
+2. the command as it was entered split on blanks into a list
+3. the command as it was sent to the proxy
+4. the commands entry in the hash table commandList
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defun makeCommandDescription (key entered split finished entry)
+  (list key entered split finished entry))
+
+(defun getKeyFromCommandDescription        (cp)  (nth 0 cp))
+(defun getEnteredFromCommandDescription  (cp)  (nth 1 cp))
+(defun getSplitFromCommandDescription       (cp)  (nth 2 cp))
+(defun getFinishedFromCommandDescription (cp)  (nth 3 cp))
+(defun getEntryCommandDescription             (cp)  (nth 4 cp))
+
+#+END_SRC
+
+
+**** I have a bunch of commands that were just entered by the user
+
+They have been split into a list of strings; each command is a string in the
+list.
+
+So what do I do with them?
+
+First I check to see it they make any sense. 
+
+The good ones are put into a list of commandDescriptions, the bad ones into a
+list of errors. Then we return a list of the two lists.
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defun javadebug-check-commands (cm)
+  (let ((checkErrors ())
+        (goodCommands ()))
+    (dolist (v cm)
+      (let* ((c (split-string v " "  't))
+             (commandEntry (ht-get commandHashMap (car c))))
+        (if (null commandEntry)
+            (setq checkErrors (append checkErrors (list (concat "error - no such command: " v))))
+          (if (javadebug-badCommandP commandEntry c)
+              (setq checkErrors (append checkErrors (list (concat "error - bad command format " v ". Try "  (javadebug-getCommandDescription commandEntry)))))
+            (setq goodCommands 
+                  (-snoc
+                   goodCommands 
+                   (makeCommandDescription
+                    (javadebug-getEntryKey commandEntry)
+                    v
+                    c
+                    ""
+                    commandEntry)))))))
+        (message "javadebug-check-commands cm  %s goodCommands %s checkErrors %s" cm goodCommands checkErrors)
+    (list goodCommands checkErrors)))
+
+(defun javadebug-check-commands-good (ls)  (nth 0 ls))
+(defun javadebug-check-commands-bad   (ls)  (nth 1 ls))
+#+END_SRC
+
+**** Commands Waiting to Run
+
+The commands waiting to run are on a list of CommandDescriptions:
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defvar commandsToRun  () "list of commands to send to proxy")
+#+END_SRC
+
+These commands were entered by the user at some time in the past
+
+We multiple commands entered at a single time as a unit. If one is invalid they
+are all invalid.
+
+If all are correct we queue up their descriptions, each waiting for a turn to run.
+
+A command is waiting to run if it is on the commandsToRun list.
+
+A command is sent to the proxy if the commandsToRun list is not empty and if
+there is no command in process. So, when we add a command to the commandsToRun
+list the precondition of sending a command to the proxy may have been met; we check
+by calling javadebug-execute-command.
+
+This is how a CommandDescription gets on the list of commands awaiting execution.
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defun javadebug-add-commandsToRun (com)
+  (let* ((r (javadebug-check-commands com))
+         (good (javadebug-check-commands-good r))
+         (bad  (javadebug-check-commands-bad r)))
+    (if bad
+        (dolist (v bad)
+          (writeStringToBuffer proxyProcess (concat v "\n")))
+      (setq commandsToRun (append commandsToRun good))))
+      (message "javadebug-add-commands commandsToRun %s runningCommand %s" commandsToRun runningCommand)
+      (javadebug-execute-command))
+#+END_SRC
+
+**** What command is the debugger running now?
+
+The command in the variable runningCommand.
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defvar runningCommand   () "the command which is active in the proxy")
+
+(defun proxyBusy ()    runningCommand)
+(defun proxyReady ()  (null runningCommand))
+#+END_SRC
+
+**** Sending a Command to the Proxy
+
+Happens in javadebug-execute-command.
+
+Two preconditions must be met before a command is sent to the proxy:
+
+1. No command is in process in the proxy,
+2. a command is available in the commandsToRun list.
+
+We check the preconditions, and if they are met, execute the command.
+
+All sorts of things are involved in executing a command:
+
+1. the command is put into it's final form, in other words, all defaults get
+   added. Note that this is done at the last minute so the defaults might
+   have changed from when the command was entered,
+
+2. the command goes into the command history,
+
+3. the command is written to output,
+
+4. the command is sent to the proxy, here is where asynchronouse behavior
+   begins.
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defun javadebug-execute-command ()
+  (if (and commandsToRun (proxyReady))
+      (let ((c (car commandsToRun)))
+        (setq commandsToRun (cdr commandsToRun))
+        (setq runningCommand
+              (makeCommandDescription 
+               (getKeyFromCommandDescription c)
+               (getEnteredFromCommandDescription c)
+               (getSplitFromCommandDescription c)
+               (javadebug-finalCommand (getEntryCommandDescription c)  (getSplitFromCommandDescription c))
+               (getEntryCommandDescription c)))
+        (message "javadebug-execute-command  %s" runningCommand)
+        (ring-insert javadebug-ring (getEnteredFromCommandDescription runningCommand))
+        (writeStringToBuffer proxyProcess (concat "\n" commandHeadline (getEnteredFromCommandDescription runningCommand) "\n"))
+        (process-send-string proxyProcess (concat  (getFinishedFromCommandDescription runningCommand) "\n")))))
+#+END_SRC
+
+**** When Does the Proxy Finish a Command
+
+When one of two things happen:
+
+1. when the proxy signals an error, or
+2. when the proxy returns the string described in the CommandDescription.
+
+And, bien sur, if a command is running.
+
+If a command finishes the proxy is ready so run, if available, the next command.
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defun javadebug-checkForCompletedCommand (args)
+  (when
+      (and runningCommand
+           (or (string= (car args) "error")
+               (javadebug-checkProxyDone (getEntryCommandDescription runningCommand) args)))
+      (setq runningCommand ())
+      (javadebug-execute-command)))
+#+END_SRC
+
+*** Handle Responses Received From  the Proxy
+
+Individual commands are handled by functions hung on this hook. The standard
+function named javadebug-proxy-string-received. See below.
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defcustom javadebug-mode-functions 'javadebug-proxy-string-received
+  "Abnormal hook run on reception of a string from the proxy."
+  :type 'hook
+  :options '(javadebug-proxy-string-received)
+  :group 'javadebug)
+#+END_SRC
+
+**** Read a Response
+
+The proxy sends data to this elisp program through stdout. That data is
+manifested to this program when the following routine is mysteriously and
+unpredictably run. That's just how asynchronous processes work in emacs.
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defun javadebug-insertion-filter (proc string)
+  (message "Received: %s :EndReceived" string)
+  (setq jdbuggerString (concat jdbuggerString string))
+  (if (s-ends-with? "\n" jdbuggerString)
+      (let ((com (split-string jdbuggerString "\n" 't)))
+        (message "javadebug-insertion-filter jdbuggerString: %s com %s" jdbuggerString com)
+        (setq jdbuggerString ())
+        (dolist (c com)
+          (if (not (s-blank? c))
+              (let ((args (split-string c ",")))
+                (run-hook-with-args 'javadebug-mode-functions proc (car args) (cdr args))
+                (javadebug-checkForCompletedCommand args))))
+        ;; make the output buffer right
+        (when (and (buffer-live-p (process-buffer proc))
+                   (get-buffer-window (process-buffer proc)))
+          (select-window (get-buffer-window (process-buffer proc)))
+          (goto-char (point-max))
+          (insert "\n")))))
+#+END_SRC
+
+And through the magic of hooks, the comma seperated line from the proxy appears
+here, probably, as a list of strings.
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defun javadebug-proxy-string-received (proc act args)
+  (message "javadebug-proxy-string-received act %s args %s runningCommand %s commandsToRun %s" act args runningCommand commandsToRun)
+  (cond 
+   ((string= act "arguments")
+    (if
+        (or
+         (string= (getKeyFromCommandDescription runningCommand) "arguments")
+         (string= (getKeyFromCommandDescription runningCommand) "frame"))
+        (writeOrgTableToBuffer
+         proc
+         argumentsTableTitle
+         orgTableSeperator
+         (if (and args (car args)) (nth 0 (read-from-string (car args))) ()))))
+   ((string= act "break")
+    (if (string= (car args)  "created") 
+        (writeStringToBuffer proc (concat "Breakpoint created at " (nth 1 args) "\n"))))
+   ((string= act "breakpoint")
+      (reportBreak (concat "breakpoint " (-first-item args))  (cdr (member "thread" args)) (cdr (member "location" args))))
+   ((string= act "classloaded")
+    (writeStringToBuffer proc (concat "Class " (car args) " loaded.\n")))
+   ((string= act "error")
+    (writeStringToBuffer proc (concat act " "  (mapconcat (lambda (c) c) " ") args) "\n"))
+   ((string= act "frame"))
+   ((string= act "locals")
+    (if
+        (or
+         (string= (getKeyFromCommandDescription runningCommand)  "locals")
+         (string= (getKeyFromCommandDescription runningCommand) "frame"))
+        (writeOrgTableToBuffer
+         proc
+         localTableTitle
+         orgTableSeperator
+         (if (and args (car args)) (nth 0 (read-from-string (car args))) ()))))
+   ((string= act "prepared") 
+    (writeStringToBuffer proc (concat "class prepare request for" (nth 1 args) "\n")))
+   ((string= act "proxy")
+    (when (string= "exit" (car args))
+      (delete-process proc)
+      (writeStringToBuffer proc "Debugger proxy exited\n"))
+    (when (string= "started" (car args))
+        (writeStringToBuffer proc "Debugger proxy started\n")))
+   ((string= act "resuming") 
+    (writeStringToBuffer proc "virtual machine resuming operation.\n"))
+   ((string= act "step")
+      (reportBreak "step"   (cdr (member "thread" args)) (cdr (member "location" args))))
+   ((string= act "threads")
+    (writeOrgTableToBuffer 
+         proc 
+         threadTableTitle 
+         orgTableSeperator
+        (-split-on "thread" args)))
+   ((string= act "vm")
+    (if (string= "started" (car args))
+        (writeStringToBuffer proc "virtual machine started\n")
+      (if (string= "created" (car args))
+          (writeStringToBuffer proc "virtual machine created\n"))))
+   (t (writeStringToBuffer proc (format "error - unknown response %s arguments %s \n" act (if args args "null"))))))
+#+END_SRC
+
+** Input
+
+Input to the elisp program comes from the org buffer created when the mode
+starts. The user enters a line at the end of the buffer and types a
+newline. That line goes to this elisp program because the mode puts a new
+routine for newline into its keymap.
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defun javadebug-newline ()
+  (interactive)
+  (let ((com (buffer-substring-no-properties
+              (line-beginning-position)
+              (line-end-position))))
+    (if (or 
+         (/=  (line-end-position) (point-max))
+         (not (string-match-p "[a-zA-Z0-9 ]+" com)))
+        (org-return)
+      (beginning-of-line)
+      (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
+      (javadebug-add-commands (split-string com ";" 't)))))
+#+END_SRC
+
+There is a command history.
+
+#+BEGIN_SRC emacs-lisp :noweb-ref create-history
+(setq javadebug-ring (make-ring 8))
+(setq javadebug-ring-index 0)
+#+END_SRC
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+  (defun javadebug-commandring ()
+    (interactive)
+    (if (/=  (line-end-position) (point-max))
+        (progn
+          (goto-char (point-max))
+          (insert "\n")
+          (setq javadebug-ring-index 0))
+      (beginning-of-line)
+      (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
+      (if (not (ring-empty-p javadebug-ring))
+          (progn
+            (if (>= javadebug-ring-index (ring-length javadebug-ring))
+                (setq javadebug-ring-index 0))
+            (insert (ring-ref javadebug-ring javadebug-ring-index))
+            (setq javadebug-ring-index (1+ javadebug-ring-index))))))
+#+END_SRC
+
+** Output
+
+The debugger outputs its results by writing them to the process buffer created
+when it starts.
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+  (defconst orgTableSeperator    "|----|\n"                                                               "string to seperate table title from contents")
+  (defconst localTableTitle         "|Locals|\n"                                                          "title for local variables table")
+  (defconst argumentsTableTitle  "|Arguments|\n"                                                    "title for method arguments table")
+  (defconst threadTableTitle       "|ID|Name|State|Frames|Breakpoint|Suspended|\n"     "title for thread table")
+
+  (defconst sessionHeadline     "* "     "start of debugging session")
+  (defconst breakpointHeadline "** "    "reports a breakpoint")
+  (defconst commandHeadline  "*** "   "enter a command")
+#+END_SRC
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+  (defun writeStringToBuffer (proc string)
+    (when (buffer-live-p (process-buffer proc))
+      (with-current-buffer (process-buffer proc)
+        (save-excursion
+          ;; Insert the text, advancing the process marker.
+          (goto-char (point-max))
+          (insert string)))))
+#+END_SRC
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+  (defun writeOrgTableToBuffer (proc title sep rows)
+    (when (buffer-live-p (process-buffer proc))
+      (with-current-buffer (process-buffer proc)
+        (save-excursion
+          ;; Insert the text, advancing the process marker.
+          (goto-char (point-max))
+          (insert (concat "\n\n" title))
+          (let ((tableStart (point)))
+            (insert sep)
+            (insert (dataLayout rows))
+            (goto-char tableStart)
+            (ignore-errors (org-ctrl-c-ctrl-c)))))))
+
+  (defun dataLayout (args)
+    (if args
+        (let ((s "| ")
+              (stack ())
+              (rc 0)
+              (ac 0))
+          (push (list rc args) stack)
+          (while stack
+            (cond
+             ((not args)
+              (let ((a (pop stack)))
+                (setq args (nth 1 a))
+                (setq rc     (nth 0 a))))
+             ((listp (car args))
+              (push (list rc (cdr args)) stack)
+              (setq args (car args)))
+             ((not (listp (car args)))
+              (let ((v (car args)))
+                (setq args (cdr args))
+                (while (/= rc ac)
+                  (cond
+                   ((< ac rc)
+                    (setq s (concat s " | "))
+                    (setq ac (1+ ac)))
+                   ((> ac rc)
+                    (setq s (concat s "\n| "))
+                    (setq ac 0))))
+                (setq s (concat s v))
+                (setq rc (1+ rc))))))
+          s)
+      ""))
+#+END_SRC
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+  (defun reportBreak (preface thread location)
+    (writeStringToBuffer
+     proc
+     (concat
+      breakpointHeadline
+      preface
+      " in thread "
+      (threadID thread)
+      " at "              
+      (locationFile location)
+      ":"
+      (locationLineNumber location)
+      "\n"))
+    (setSourceFileWindow
+     proc
+     (locationFile location)
+     (locationLineNumber location)))
+
+  (defun threadID               (args) (nth 0 args))
+  (defun threadName          (args) (nth 1 args))
+  (defun threadState           (args) (nth 2 args))
+  (defun threadFrames       (args) (nth 3 args))
+  (defun threadBreakpoint  (args) (nth 4 args))
+  (defun threadSuspended (args) (nth 5 args))
+
+  (defun locationFile             (args) (nth 0 args))
+  (defun locationLineNumber (args) (nth 1 args))
+  (defun locationMethod        (args) (nth 2 args))
+
+#+END_SRC
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defun setSourceFileWindow (proc file line)
+  (let ((bug (find-file-noselect file)))
+    (when (and bug (buffer-live-p (process-buffer proc)))
+      (with-current-buffer bug
+        (goto-char (point-min))
+        (forward-line (1- (string-to-number line)))
+        (bm-remove-all-all-buffers)
+        (bm-toggle))
+      (with-current-buffer (process-buffer proc)
+        (goto-char (point-max)))
+      (if (= (length (window-list)) 1)
+          (split-window))
+      (winForOtherBuffer bug (process-buffer proc))
+      (let ((procWin (winForOtherBuffer (process-buffer proc) bug)))
+        (if procWin
+            (select-window procWin))))))
+
+(defun winForOtherBuffer (buffer notbuffer)
+  (let ((win (get-buffer-window buffer)))
+    (when (not win)
+      (let  ((wl (window-list)))
+        (while (and wl (eq notbuffer (window-buffer (car wl))))
+          (setq wl (cdr wl)))
+        (setq win (if wl (car wl) (car (window-list))))
+        (set-window-buffer win buffer)))
+    win))
+#+END_SRC
+
+** OK, start her up
+
+#+BEGIN_SRC emacs-lisp :noweb tangle :tangle bugged.el
+(defun javadebugMode  (px src mn)
+    (interactive "Dproxy directory: \nDsource root:: \nMmain class ")
+    (message "startProc")
+    (find-file (concat mn (format-time-string ".%Y,%m.%d.%H.%M.%S") ".org"))
+    (insert "#+STARTUP: showeverything\n")
+    (goto-char (point-max))
+    (insert (concat "\n\n" sessionHeadline "Starting debugger session " (current-time-string) ".\n\tProxy directory: " px ".\n\tSource root: " src ".\n\tMain class: " mn ".\n\n"));
+    (cd (file-name-as-directory px))
+    (delete-other-windows)
+    (javadebug-mode)
+    (add-hook 'javadebug-mode-functions 'javadebug-proxy-string-received)
+
+    ;; set up the command history
+
+    <<create-history>>
+
+    ;; start the proxy
+
+    <<start-proxy>>
+
+    (goto-char (point-max))
+    (set-marker (process-mark proxyProcess) (point))
+    (insert (format "attach localhost 8000;prepare %s;load;break %s main;continue" mn mn))
+    (javadebug-newline))
+#+END_SRC
