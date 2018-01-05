@@ -90,7 +90,7 @@ class EventReader extends Thread
                 } catch (InterruptedException exc) {
                     // Do nothing. Any changes will be seen at top of loop.
                 } catch (VMDisconnectedException discExc) {
-                    System.out.println("Exception," + discExc);
+                    System.out.println("exception," + discExc);
                     connected = false;
                     break;
                     //            } catch (AbsentInformationException a)  {

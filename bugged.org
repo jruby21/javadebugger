@@ -198,7 +198,7 @@ Support commands are kept in a hash table
                                (lambda (c) (format "run"))
                                (lambda (r) (string= (car r) "resuming")))
    (javadebug-makeCommandEntry "stack"
-                               (lambda (c) (or (> (length c) 2)  (not (string-match "[0-9]+" (nth 1 c)))))
+                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c))))))
                                "stack [thread-id]"
                                (lambda (c)
                                  (format
@@ -312,7 +312,7 @@ by calling javadebug-execute-command.
 This is how a CommandDescription gets on the list of commands awaiting execution.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defun javadebug-add-commandsToRun (com)
+(defun javadebug-add-commands (com)
   (let* ((r (javadebug-check-commands com))
          (good (javadebug-check-commands-good r))
          (bad  (javadebug-check-commands-bad r)))
@@ -463,7 +463,9 @@ here, probably, as a list of strings.
    ((string= act "classloaded")
     (writeStringToBuffer proc (concat "Class " (car args) " loaded.\n")))
    ((string= act "error")
-    (writeStringToBuffer proc (concat act " "  (mapconcat (lambda (c) c) " ") args) "\n"))
+    (writeStringToBuffer proc (concat act " "  (s-join  " " args) "\n")))
+   ((string= act "exception")
+    (writeStringToBuffer proc (concat "Exception received in proxy: " (car args))))
    ((string= act "frame"))
    ((string= act "locals")
     (if
@@ -485,8 +487,12 @@ here, probably, as a list of strings.
         (writeStringToBuffer proc "Debugger proxy started\n")))
    ((string= act "resuming") 
     (writeStringToBuffer proc "virtual machine resuming operation.\n"))
+   ((string= act "stack")
+    (writeStringToBuffer proc (concat "thread " (car args) "\n"))
+    (dolist (v (-split-on "location" (cdr args)))
+      (writeStringToBuffer proc (format "%s:%s %s\n" (nth 0 v) (nth 1 v) (nth 2 v)))))
    ((string= act "step")
-      (reportBreak "step"   (cdr (member "thread" args)) (cdr (member "location" args))))
+    (reportBreak "step"   (cdr (member "thread" args)) (cdr (member "location" args))))
    ((string= act "threads")
     (writeOrgTableToBuffer 
          proc 
@@ -498,6 +504,10 @@ here, probably, as a list of strings.
         (writeStringToBuffer proc "virtual machine started\n")
       (if (string= "created" (car args))
           (writeStringToBuffer proc "virtual machine created\n"))))
+   ((string= act "VMDeath")
+    (writeStringToBuffer proc "target virtual machine terminated"))
+   ((string= act "VMDisconnectEvent")
+    (writeStringToBuffer proc "proxy disconnected from target virtual machine"))
    (t (writeStringToBuffer proc (format "error - unknown response %s arguments %s \n" act (if args args "null"))))))
 #+END_SRC
 
@@ -622,34 +632,35 @@ when it starts.
 #+END_SRC
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
-  (defun reportBreak (preface thread location)
-    (writeStringToBuffer
-     proc
-     (concat
-      breakpointHeadline
-      preface
-      " in thread "
-      (threadID thread)
-      " at "              
-      (locationFile location)
-      ":"
-      (locationLineNumber location)
-      "\n"))
-    (setSourceFileWindow
-     proc
-     (locationFile location)
-     (locationLineNumber location)))
+(defun reportBreak (preface thread location)
+  (setq defaultThread (threadID thread))
+  (writeStringToBuffer
+   proc
+   (concat
+    breakpointHeadline
+    preface
+    " in thread "
+    (threadID thread)
+    " at "              
+    (locationFile location)
+    ":"
+    (locationLineNumber location)
+    "\n"))
+  (setSourceFileWindow
+   proc
+   (locationFile location)
+   (locationLineNumber location)))
 
-  (defun threadID               (args) (nth 0 args))
-  (defun threadName          (args) (nth 1 args))
-  (defun threadState           (args) (nth 2 args))
-  (defun threadFrames       (args) (nth 3 args))
-  (defun threadBreakpoint  (args) (nth 4 args))
-  (defun threadSuspended (args) (nth 5 args))
+(defun threadID               (args) (nth 0 args))
+(defun threadName          (args) (nth 1 args))
+(defun threadState           (args) (nth 2 args))
+(defun threadFrames       (args) (nth 3 args))
+(defun threadBreakpoint  (args) (nth 4 args))
+(defun threadSuspended (args) (nth 5 args))
 
-  (defun locationFile             (args) (nth 0 args))
-  (defun locationLineNumber (args) (nth 1 args))
-  (defun locationMethod        (args) (nth 2 args))
+(defun locationFile             (args) (nth 0 args))
+(defun locationLineNumber (args) (nth 1 args))
+(defun locationMethod        (args) (nth 2 args))
 
 #+END_SRC
 

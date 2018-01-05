@@ -298,7 +298,7 @@
                 (setq javadebug-ring-index 0))
             (insert (ring-ref javadebug-ring javadebug-ring-index))
             (setq javadebug-ring-index (1+ javadebug-ring-index))))))
-
+e
   (defun writeStringToBuffer (proc string)
     (when (buffer-live-p (process-buffer proc))
       (with-current-buffer (process-buffer proc)
