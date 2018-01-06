@@ -436,6 +436,7 @@ unpredictably run. That's just how asynchronous processes work in emacs.
           (select-window (get-buffer-window (process-buffer proc)))
           (goto-char (point-max))
           (insert "\n")))))
+
 #+END_SRC
 
 And through the magic of hooks, the comma seperated line from the proxy appears
@@ -664,23 +665,33 @@ when it starts.
 
 #+END_SRC
 
+*** Set windows
+
+We would really like two windows. One with the source file in it, the cursor on
+the current line, a bookmark on that line, and that line in the middle of the
+window. The other showing the org file with the cursor on the last line. Maybe
+we can get this, maybe not.
+
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 (defun setSourceFileWindow (proc file line)
   (let ((bug (find-file-noselect file)))
     (when (and bug (buffer-live-p (process-buffer proc)))
-      (with-current-buffer bug
+      (if (= (length (window-list)) 1)
+          (split-window))
+      (let ((source (winForOtherBuffer bug (process-buffer proc))))
+        (if source
+            (select-window source)
+          (set-buffer bug))
         (goto-char (point-min))
         (forward-line (1- (string-to-number line)))
         (bm-remove-all-all-buffers)
-        (bm-toggle))
-      (with-current-buffer (process-buffer proc)
-        (goto-char (point-max)))
-      (if (= (length (window-list)) 1)
-          (split-window))
-      (winForOtherBuffer bug (process-buffer proc))
+        (bm-toggle)
+        (if (eq (window-buffer) bug) (recenter-top-bottom)))
       (let ((procWin (winForOtherBuffer (process-buffer proc) bug)))
         (if procWin
-            (select-window procWin))))))
+            (select-window procWin)
+          (set-buffer (process-buffer proc)))
+        (goto-char (point-max))))))
 
 (defun winForOtherBuffer (buffer notbuffer)
   (let ((win (get-buffer-window buffer)))
