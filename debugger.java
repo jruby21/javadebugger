@@ -214,12 +214,52 @@ public static void main(String args[]) throws Exception
                         System.out.print("breakpoints");
                         
                         for (BreakpointRequest b : brs)  bps [((Integer) b.getProperty(NumberProperty)).intValue()] = b;
-                        for (int i = 0; i != bps.length; i++)  if (bps [i] != null)  System.out.print(",breakpoint," + i + "," + (new location(bps [i].location())).toString());
 
+                        for (int i = 0; i != bps.length; i++)
+
+                            {
+                                if (bps [i] != null && bps [i].isEnabled())
+
+                                    System.out.print(",breakpoint," + i + "," + (new location(bps [i].location())).toString());
+                            }
+                        
                         System.out.print("\n");
                         break;
 
+
+                    case CLEAR:
+
+                        if (parse.next() != parser.TOKEN.STRING)
+
+                            System.out.println("error,clear breakpoint-number");
+
+                        else
+
+                            {
+                             try {
+                                 long                            breakpointId = Long.parseLong(parse.getString());
+                                 List<BreakpointRequest> bres           = vm.eventRequestManager().breakpointRequests();
                         
+                                 for (BreakpointRequest b : bres)
+
+                                     {
+                                         if (((Integer) b.getProperty(NumberProperty)).intValue() == breakpointId)
+
+                                             {
+                                                 b.disable();
+                                                 System.out.println("cleared," + breakpointId);
+                                             }
+                                     }
+
+                                 System.out.println("error,no such breakpoint");
+                             } catch (NumberFormatException e) {
+                                 System.out.println("error,breakpointId is numeric");
+                             }
+                            }
+                        
+                        break;
+
+                             
                     case FRAME:
 
                         tok0           = parse.next();
@@ -531,7 +571,6 @@ public static void main(String args[]) throws Exception
 
             {
                 StringBuilder            b  = new StringBuilder();
-                List<Field>	            fld = ((ClassType) v.type()).allFields();
                 List<InterfaceType>  it   = ((ClassType)  v.type()).allInterfaces();
 
                 for (InterfaceType i : it)
@@ -664,7 +703,9 @@ public static void main(String args[]) throws Exception
                                 return b.toString();
                             }
                     }
-                
+
+                List<Field>	fld = ((ClassType) v.type()).allFields();
+
                 for (Field f : fld)
 
                     b = b.append("( \""

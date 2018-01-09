@@ -134,6 +134,14 @@ Support commands are kept in a hash table
                                "breaks"
                                (lambda (c) "breaks")
                                (lambda (r) (string= (car r) "breakpoints")))
+   (javadebug-makeCommandEntry "clear"
+                               (lambda (c) (or (/= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c)))))
+                               "clear [breakpoint-id]"
+                               (lambda (c)
+                                 (format
+                                  "clear %s"
+                                  (nth 1 c)))
+                               (lambda (r) (string= (car r) "step")))
    (javadebug-makeCommandEntry "continue"
                                (lambda (c) (/= (length c) 1))
                                "continue"
@@ -222,6 +230,9 @@ Support commands are kept in a hash table
                                (lambda (c) "threads")
                                (lambda (r) (string= (car r) "threads"))))))
 #+END_SRC
+
+#+RESULTS:
+: commandHashMap
 
 **** Describing a Command About to be Executed
 
