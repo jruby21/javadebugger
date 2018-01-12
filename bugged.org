@@ -222,7 +222,7 @@ Support commands are kept in a hash table
                                  (format
                                   "this %s %s"
                                   (if (= (length c) 1) defaultThread (nth 1 c))
-                                  (if (or (= (length c) 1)  (= (length c) 2) "0" (nth 2 c)))))
+                                  (if (< (length c) 3) "0" (nth 2 c))))
                                (lambda (r) (string= (car r) "this)")))
    (javadebug-makeCommandEntry "threads"
                                (lambda (c) (/= (length c) 1))
@@ -466,7 +466,7 @@ here, probably, as a list of strings.
          proc
          argumentsTableTitle
          orgTableSeperator
-         (if (and args (car args)) (nth 0 (read-from-string (car args))) ()))))
+         (if (and args (car args))  (nth 0 (read-from-string (car args)))))))
    ((string= act "break")
     (if (string= (car args)  "created") 
         (writeStringToBuffer proc (concat "Breakpoint created at " (nth 1 args) "\n"))))
@@ -488,7 +488,7 @@ here, probably, as a list of strings.
          proc
          localTableTitle
          orgTableSeperator
-         (if (and args (car args)) (nth 0 (read-from-string (car args))) ()))))
+         (if (and args (car args))  (nth 0 (read-from-string (car args)))))))
    ((string= act "prepared") 
     (writeStringToBuffer proc (concat "class prepare request for" (nth 1 args) "\n")))
    ((string= act "proxy")
@@ -505,6 +505,12 @@ here, probably, as a list of strings.
       (writeStringToBuffer proc (format "%s:%s %s\n" (nth 0 v) (nth 1 v) (nth 2 v)))))
    ((string= act "step")
     (reportBreak "step"   (cdr (member "thread" args)) (cdr (member "location" args))))
+   ((string= act "this")
+    (writeOrgTableToBuffer
+     proc
+     thisTableTitle
+     orgTableSeperator
+     (if (and args (car args))  (nth 0 (read-from-string (car args))))))
    ((string= act "threads")
     (writeOrgTableToBuffer 
          proc 
@@ -522,6 +528,7 @@ here, probably, as a list of strings.
     (writeStringToBuffer proc "proxy disconnected from target virtual machine"))
    (t (writeStringToBuffer proc (format "error - unknown response %s arguments %s \n" act (if args args "null"))))))
 #+END_SRC
+
 
 ** Input
 
@@ -580,6 +587,7 @@ when it starts.
   (defconst localTableTitle         "|Locals|\n"                                                          "title for local variables table")
   (defconst argumentsTableTitle  "|Arguments|\n"                                                    "title for method arguments table")
   (defconst threadTableTitle       "|ID|Name|State|Frames|Breakpoint|Suspended|\n"     "title for thread table")
+  (defconst thisTableTitle          "|This|\n"                                                              "title for this table")
 
   (defconst sessionHeadline     "* "     "start of debugging session")
   (defconst breakpointHeadline "** "    "reports a breakpoint")
