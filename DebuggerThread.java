@@ -1,5 +1,5 @@
-import com.sun.jdi.*;
-import java.util.*;
+import com.sun.jdi.IncompatibleThreadStateException;
+import com.sun.jdi.ThreadReference;
 
 class DebuggerThread
 {

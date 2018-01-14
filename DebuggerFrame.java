@@ -1,5 +1,44 @@
-import com.sun.jdi.*;
-import java.util.*;
+import com.sun.jdi.AbsentInformationException;
+import com.sun.jdi.ArrayReference;
+import com.sun.jdi.ArrayType;
+import com.sun.jdi.BooleanType;
+import com.sun.jdi.BooleanValue;
+import com.sun.jdi.ByteValue;
+import com.sun.jdi.CharValue;
+import com.sun.jdi.ClassLoaderReference;
+import com.sun.jdi.ClassNotLoadedException;
+import com.sun.jdi.ClassObjectReference;
+import com.sun.jdi.ClassType;
+import com.sun.jdi.DoubleValue;
+import com.sun.jdi.Field;
+import com.sun.jdi.FloatValue;
+import com.sun.jdi.IncompatibleThreadStateException;
+import com.sun.jdi.IntegerValue;
+import com.sun.jdi.InterfaceType;
+import com.sun.jdi.InvalidStackFrameException;
+import com.sun.jdi.InvalidTypeException;
+import com.sun.jdi.InvocationException;
+import com.sun.jdi.Location;
+import com.sun.jdi.LocalVariable;
+import com.sun.jdi.LongValue;
+import com.sun.jdi.Method;
+import com.sun.jdi.ObjectReference;
+import com.sun.jdi.PrimitiveType;
+import com.sun.jdi.PrimitiveValue;
+import com.sun.jdi.ReferenceType;
+import com.sun.jdi.ShortValue;
+import com.sun.jdi.StackFrame;
+import com.sun.jdi.StringReference;
+import com.sun.jdi.ThreadGroupReference;
+import com.sun.jdi.ThreadReference;
+import com.sun.jdi.Type;
+import com.sun.jdi.Value;
+import com.sun.jdi.VoidValue;
+
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
 class DebuggerFrame
 {
@@ -57,7 +96,7 @@ class DebuggerFrame
             }
     }
 
-    public String showLocation()    { return  ((loc == null) ? "no location available" : (new location(loc)).toString()); }
+    public String showLocation()    { return  ((loc == null) ? "no location available" : (new DebuggerLocation(loc)).toString()); }
     public String showThis()          { return (error != null) ? error :  "(" + getValueString(thises) + ")"; }
     public String showLocals()       { return (error != null) ? error : "(" + showVars(false) + ")"; }
     public String showArguments() {return (error != null) ? error : "(" + showVars(true) + ")"; }
