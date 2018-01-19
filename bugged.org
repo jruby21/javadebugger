@@ -56,12 +56,12 @@ on stdin and replies on stdout.
              (lambda (r) (and (string= (car r) "proxy") (string= (nth 1 r) "started"))))))
 
 (setq proxyProcess
-      (start-process 
-       "jdbProxy" 
+      (start-process
+       "jdbProxy"
        (current-buffer)
-       "/home/jruby/tools/jdk1.8.0_131/bin/java" 
-       "-cp" 
-       "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" 
+       "/home/jruby/tools/jdk1.8.0_131/bin/java"
+       "-cp"
+       "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar"
        "debugger"))
 
 (set-process-filter proxyProcess 'javadebug-insertion-filter)
@@ -77,10 +77,10 @@ A supported command is described by a CommandEntry
 (defun javadebug-makeCommandEntry (entryKey commandCheck commandDescription finishedCommand commandCompleted)
   (list entryKey commandCheck commandDescription finishedCommand commandCompleted))
 
-(defun javadebug-getEntryKey                   (c) (nth 0 c)) 
-(defun javadebug-getCommandCheck        (c) (nth 1 c)) 
-(defun javadebug-getCommandDescription (c) (nth 2 c)) 
-(defun javadebug-getFinishedCommand     (c) (nth 3 c)) 
+(defun javadebug-getEntryKey                   (c) (nth 0 c))
+(defun javadebug-getCommandCheck        (c) (nth 1 c))
+(defun javadebug-getCommandDescription (c) (nth 2 c))
+(defun javadebug-getFinishedCommand     (c) (nth 3 c))
 (defun javadebug-getCommandCompleted  (c) (nth 4 c))
 
 (defun javadebug-badCommandP    (e f)    (funcall (javadebug-getCommandCheck e) f))
@@ -92,10 +92,10 @@ A supported command is described by a CommandEntry
 Support commands are kept in a hash table
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defconst commandHashMap 
+(defconst commandHashMap
   ((lambda (x)
      (let ((h (ht-create)))
-       (mapc 
+       (mapc
         (lambda (c) (ht-set h (javadebug-getEntryKey c) c))
         x)
        h))
@@ -199,7 +199,7 @@ Support commands are kept in a hash table
                                (lambda (c) (/= (length c) 1))
                                "quit"
                                (lambda (c) "quit")
-                               (lambda (r) (string= (car r) "proxy"))) 
+                               (lambda (r) (string= (car r) "proxy")))
    (javadebug-makeCommandEntry "run"
                                (lambda (c) (/= (length c) 1))
                                "run"
@@ -230,9 +230,6 @@ Support commands are kept in a hash table
                                (lambda (c) "threads")
                                (lambda (r) (string= (car r) "threads"))))))
 #+END_SRC
-
-#+RESULTS:
-: commandHashMap
 
 **** Describing a Command About to be Executed
 
@@ -266,7 +263,7 @@ list.
 
 So what do I do with them?
 
-First I check to see it they make any sense. 
+First I check to see it they make any sense.
 
 The good ones are put into a list of commandDescriptions, the bad ones into a
 list of errors. Then we return a list of the two lists.
@@ -282,9 +279,9 @@ list of errors. Then we return a list of the two lists.
             (setq checkErrors (append checkErrors (list (concat "error - no such command: " v))))
           (if (javadebug-badCommandP commandEntry c)
               (setq checkErrors (append checkErrors (list (concat "error - bad command format " v ". Try "  (javadebug-getCommandDescription commandEntry)))))
-            (setq goodCommands 
+            (setq goodCommands
                   (-snoc
-                   goodCommands 
+                   goodCommands
                    (makeCommandDescription
                     (javadebug-getEntryKey commandEntry)
                     v
@@ -376,7 +373,7 @@ All sorts of things are involved in executing a command:
       (let ((c (car commandsToRun)))
         (setq commandsToRun (cdr commandsToRun))
         (setq runningCommand
-              (makeCommandDescription 
+              (makeCommandDescription
                (getKeyFromCommandDescription c)
                (getEnteredFromCommandDescription c)
                (getSplitFromCommandDescription c)
@@ -456,7 +453,7 @@ here, probably, as a list of strings.
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 (defun javadebug-proxy-string-received (proc act args)
   (message "javadebug-proxy-string-received act %s args %s runningCommand %s commandsToRun %s" act args runningCommand commandsToRun)
-  (cond 
+  (cond
    ((string= act "arguments")
     (if
         (or
@@ -468,7 +465,7 @@ here, probably, as a list of strings.
          orgTableSeperator
          (if (and args (car args))  (nth 0 (read-from-string (car args)))))))
    ((string= act "break")
-    (if (string= (car args)  "created") 
+    (if (string= (car args)  "created")
         (writeStringToBuffer proc (concat "Breakpoint created at " (nth 1 args) "\n"))))
    ((string= act "breakpoint")
       (reportBreak (concat "breakpoint " (-first-item args))  (cdr (member "thread" args)) (cdr (member "location" args))))
@@ -489,7 +486,7 @@ here, probably, as a list of strings.
          localTableTitle
          orgTableSeperator
          (if (and args (car args))  (nth 0 (read-from-string (car args)))))))
-   ((string= act "prepared") 
+   ((string= act "prepared")
     (writeStringToBuffer proc (concat "class prepare request for" (nth 1 args) "\n")))
    ((string= act "proxy")
     (when (string= "exit" (car args))
@@ -497,7 +494,7 @@ here, probably, as a list of strings.
       (writeStringToBuffer proc "Debugger proxy exited\n"))
     (when (string= "started" (car args))
         (writeStringToBuffer proc "Debugger proxy started\n")))
-   ((string= act "resuming") 
+   ((string= act "resuming")
     (writeStringToBuffer proc "virtual machine resuming operation.\n"))
    ((string= act "stack")
     (writeStringToBuffer proc (concat "thread " (car args) "\n"))
@@ -512,9 +509,9 @@ here, probably, as a list of strings.
      orgTableSeperator
      (if (and args (car args))  (nth 0 (read-from-string (car args))))))
    ((string= act "threads")
-    (writeOrgTableToBuffer 
-         proc 
-         threadTableTitle 
+    (writeOrgTableToBuffer
+         proc
+         threadTableTitle
          orgTableSeperator
         (-split-on "thread" args)))
    ((string= act "vm")
@@ -543,7 +540,7 @@ routine for newline into its keymap.
   (let ((com (buffer-substring-no-properties
               (line-beginning-position)
               (line-end-position))))
-    (if (or 
+    (if (or
          (/=  (line-end-position) (point-max))
          (not (string-match-p "[a-zA-Z0-9 ]+" com)))
         (org-return)
@@ -661,7 +658,7 @@ when it starts.
     preface
     " in thread "
     (threadID thread)
-    " at "              
+    " at "
     (locationFile location)
     ":"
     (locationLineNumber location)
