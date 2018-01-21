@@ -44,16 +44,17 @@ on stdin and replies on stdout.
 (setq jdbuggerString "")
 
 (setq runningCommand
-      (makeCommandDescription
+      (javadebug-describeRunnableCommand
        "proxy"
        "proxy"
        (list "proxy")
-       "proxy"
-       (list "proxy"
-             (lambda (c) ())
-             ""
-             (lambda (c) "")
-             (lambda (r) (and (string= (car r) "proxy") (string= (nth 1 r) "started"))))))
+       (javadebug-makeCommandHashEntry
+        "proxy"
+        (lambda (c) ())
+        ""
+        (lambda (c) "")
+        (lambda (r) (and (string= (car r) "proxy") (string= (nth 1 r) "started"))))))
+
 
 (setq proxyProcess
       (start-process
@@ -71,21 +72,21 @@ on stdin and replies on stdout.
 
 **** Comands the Debugger Supports
 
-A supported command is described by a CommandEntry
+A supported command is described by a CommandHashEntry
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defun javadebug-makeCommandEntry (entryKey commandCheck commandDescription finishedCommand commandCompleted)
-  (list entryKey commandCheck commandDescription finishedCommand commandCompleted))
+(defun javadebug-makeCommandHashEntry (hashKey badCommandP describeCommand executeCommand proxyDoneP)
+  (list hashKey badCommandP describeCommand executeCommand proxyDoneP))
 
-(defun javadebug-getEntryKey                   (c) (nth 0 c))
-(defun javadebug-getCommandCheck        (c) (nth 1 c))
-(defun javadebug-getCommandDescription (c) (nth 2 c))
-(defun javadebug-getFinishedCommand     (c) (nth 3 c))
-(defun javadebug-getCommandCompleted  (c) (nth 4 c))
+(defun javadebug-hashKey                        (hashEntry) (nth 0 hashEntry))
+(defun javadebug-hashBadCommandP       (hashEntry) (nth 1 hashEntry))
+(defun javadebug-hashDescribeCommand  (hashEntry) (nth 2 hashEntry))
+(defun javadebug-hashDoCommand          (hashEntry) (nth 3 hashEntry))
+(defun javadebug-hashProxyDoneP          (hashEntry) (nth 4 hashEntry))
 
-(defun javadebug-badCommandP    (e f)    (funcall (javadebug-getCommandCheck e) f))
-(defun javadebug-finalCommand     (e f)    (funcall (javadebug-getFinishedCommand e) f))
-(defun javadebug-checkProxyDone  (e f)    (funcall (javadebug-getCommandCompleted e) f))
+(defun javadebug-badCommandP    (e f)             (funcall (javadebug-hashBadCommandP e) f))
+(defun javadebug-checkProxyDone  (e f)             (funcall (javadebug-hashProxyDoneP e) f))
+(defun javadebug-doCommand       (e p f)          (funcall (javadebug-hashDoCommand e) p f))
 
 #+END_SRC
 
@@ -96,138 +97,191 @@ Support commands are kept in a hash table
   ((lambda (x)
      (let ((h (ht-create)))
        (mapc
-        (lambda (c) (ht-set h (javadebug-getEntryKey c) c))
+        (lambda (c) (ht-set h (javadebug-hashKey c) c))
         x)
        h))
   (list
-   (javadebug-makeCommandEntry "arguments"
+   (javadebug-makeCommandHashEntry "arguments"
                                (lambda (c) (not (or (= (length c) 1)
                                                     (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
                                                     (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
                                "arguments [thread-id] [frame number]"
-                               (lambda (c)
-                                 (format
-                                  "frame %s %s"
-                                  (if (= (length c) 1) defaultThread (nth 1 c))
-                                  (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c))))
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "frame,%s,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c))
+                                   (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c)))))
                                (lambda (r) (string= (car r) "arguments")))
-   (javadebug-makeCommandEntry "attach"
+   (javadebug-makeCommandHashEntry "attach"
                                (lambda (c) (or (/= (length c) 3)  (not (string-match "[0-9]+" (nth 2 c)))))
-                               "attach host  [port number]"
-                               (lambda (c) (format "attach %s %s" (nth 1 c) (nth 2 c)))
+                               "attach host  [port number ]"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format "attach,%s,%s\n" (nth 1 c) (nth 2 c))))
                                (lambda (r) (and (string= (car r) "vm")) (string= (nth 1 r) "started")))
-   (javadebug-makeCommandEntry "back"
+   (javadebug-makeCommandHashEntry "back"
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
                                "back [thread-id]"
-                               (lambda (c)
-                                 (format
-                                  "back %s"
-                                  (if (= (length c) 1) defaultThread (nth 1 c))))
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "back,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
                                (lambda (r) (string= (car r) "step")))
-   (javadebug-makeCommandEntry "break"
+   (javadebug-makeCommandHashEntry "break"
                                (lambda (c) (/= (length c) 3))
                                "break class-name <line-number|method name>"
-                               (lambda (c) (format "break %s %s" (nth 1 c) (nth 2 c)))
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format "break,%s,%s\n" (nth 1 c) (nth 2 c))))
                                (lambda (r) (and (string= (car r) "break")) (string= (nth 2 r) "created")))
-   (javadebug-makeCommandEntry "breaks"
+   (javadebug-makeCommandHashEntry "breaks"
                                (lambda (c) (/= (length c) 1))
                                "breaks"
-                               (lambda (c) "breaks")
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  "breaks\n"))
                                (lambda (r) (string= (car r) "breakpoints")))
-   (javadebug-makeCommandEntry "clear"
+   (javadebug-makeCommandHashEntry "clear"
                                (lambda (c) (or (/= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c)))))
                                "clear [breakpoint-id]"
-                               (lambda (c)
-                                 (format
-                                  "clear %s"
-                                  (nth 1 c)))
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "clear,%s\n"
+                                   (nth 1 c))))
                                (lambda (r) (string= (car r) "step")))
-   (javadebug-makeCommandEntry "continue"
+   (javadebug-makeCommandHashEntry "continue"
                                (lambda (c) (/= (length c) 1))
                                "continue"
-                               (lambda (c) (format "continue"))
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  "continue\n"))
                                (lambda (r) (string= (car r) "resuming")))
-   (javadebug-makeCommandEntry "frame"
+   (javadebug-makeCommandHashEntry "frame"
                                (lambda (c) (not (or (= (length c) 1)
                                                     (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
                                                     (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
                                "frame [thread-id] [frame number]"
-                               (lambda (c)
-                                 (format
-                                  "frame %s %s"
-                                  (if (= (length c) 1) defaultThread (nth 1 c))
-                                  (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c))))
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "frame,%s,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c))
+                                   (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c)))))
                                (lambda (r) (string= (car r) "frame")))
-   (javadebug-makeCommandEntry "into"
+   (javadebug-makeCommandHashEntry "help"
+                               (lambda (c) ())
+                               "help"
+                               (lambda (proxy c)
+                                 (dolist (v
+                                          (sort (ht-map (lambda (key value) (javadebug-hashDescribeCommand value)) commandHashMap) 'string<))
+                                   (writeStringToBuffer proxy (concat v "\n"))))
+                               (lambda (r) (string= (car r) "help")))
+   (javadebug-makeCommandHashEntry "into"
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
                                "into [thread-id]"
-                               (lambda (c)
-                                 (format
-                                  "into %s"
-                                  (if (= (length c) 1) defaultThread (nth 1 c))))
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "into,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
                                (lambda (r) (string= (car r) "step")))
-   (javadebug-makeCommandEntry "load"
+   (javadebug-makeCommandHashEntry "load"
                                (lambda (c) (/= (length c) 1))
-                               "run"
-                               (lambda (c) (format "run"))
+                               "load"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  "run\n"))
                                (lambda (r) (string= (car r) "classloaded")))
-   (javadebug-makeCommandEntry "locals"
+   (javadebug-makeCommandHashEntry "locals"
                                (lambda (c) (not (or (= (length c) 1)
                                                     (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
                                                     (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
                                "locals [thread-id] [frame-number]"
-                               (lambda (c)
-                                 (format
-                                  "frame %s %s"
-                                  (if (= (length c) 1) defaultThread (nth 1 c))
-                                  (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c))))
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "frame,%s,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c))
+                                   (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c)))))
                                (lambda (r) (string= (car r) "locals")))
-   (javadebug-makeCommandEntry "next"
+   (javadebug-makeCommandHashEntry "next"
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
                                "next [thread-id]"
-                               (lambda (c)
-                                 (format
-                                  "next %s"
-                                  (if (= (length c) 1) defaultThread (nth 1 c))))
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "next,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
                                (lambda (r) (string= (car r) "step")))
-   (javadebug-makeCommandEntry "prepare"
+   (javadebug-makeCommandHashEntry "prepare"
                                (lambda (c) (/= (length c) 2))
                                "prepare [class name]"
-                               (lambda (c) (format "prepare %s" (nth 1 c)))
-                               (lambda (r) (string= (car r) "prepared")))
-   (javadebug-makeCommandEntry "quit"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format "prepare,%s\n" (nth 1 c))))
+                                (lambda (r) (string= (car r) "prepared")))
+   (javadebug-makeCommandHashEntry "quit"
                                (lambda (c) (/= (length c) 1))
                                "quit"
-                               (lambda (c) "quit")
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  "quit\n"))
                                (lambda (r) (string= (car r) "proxy")))
-   (javadebug-makeCommandEntry "run"
+   (javadebug-makeCommandHashEntry "run"
                                (lambda (c) (/= (length c) 1))
                                "run"
-                               (lambda (c) (format "run"))
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  "run\n"))
                                (lambda (r) (string= (car r) "resuming")))
-   (javadebug-makeCommandEntry "stack"
+   (javadebug-makeCommandHashEntry "stack"
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c))))))
                                "stack [thread-id]"
-                               (lambda (c)
-                                 (format
-                                  "stack %s"
-                                  (if (= (length c) 1) defaultThread (nth 1 c))))
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "stack,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
                                (lambda (r) (string= (car r) "stack")))
-   (javadebug-makeCommandEntry "this"
+   (javadebug-makeCommandHashEntry "this"
                                (lambda (c) (not (or (= (length c) 1)
                                                     (and (= (length c) 2)  (string-match "[0-9]+" (nth 1 c)))
                                                     (and (= (length c) 3)   (string-match "[0-9]+" (nth 1 c)) (string-match "[0-9]+" (nth 2 c))))))
                                "this [thread-id] [frame number]"
-                               (lambda (c)
-                                 (format
-                                  "this %s %s"
-                                  (if (= (length c) 1) defaultThread (nth 1 c))
-                                  (if (< (length c) 3) "0" (nth 2 c))))
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "this,%s,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c))
+                                   (if (< (length c) 3) "0" (nth 2 c)))))
                                (lambda (r) (string= (car r) "this)")))
-   (javadebug-makeCommandEntry "threads"
-                               (lambda (c) (/= (length c) 1))
-                               "threads"
-                               (lambda (c) "threads")
+   (javadebug-makeCommandHashEntry "threads"
+                                   (lambda (c) (/= (length c) 1))
+                                   "threads"
+                                   (lambda (proxy c)
+                                     (process-send-string
+                                      proxy
+                                      "threads\n"))
                                (lambda (r) (string= (car r) "threads"))))))
 #+END_SRC
 
@@ -244,14 +298,13 @@ The contents of the list are:
 4. the commands entry in the hash table commandList
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defun makeCommandDescription (key entered split finished entry)
-  (list key entered split finished entry))
+(defun javadebug-describeRunnableCommand (key entered split entry)
+  (list key entered split entry))
 
 (defun getKeyFromCommandDescription        (cp)  (nth 0 cp))
 (defun getEnteredFromCommandDescription  (cp)  (nth 1 cp))
 (defun getSplitFromCommandDescription       (cp)  (nth 2 cp))
-(defun getFinishedFromCommandDescription (cp)  (nth 3 cp))
-(defun getEntryCommandDescription             (cp)  (nth 4 cp))
+(defun getCommandHashEntry             (cp)  (nth 3 cp))
 
 #+END_SRC
 
@@ -274,20 +327,19 @@ list of errors. Then we return a list of the two lists.
         (goodCommands ()))
     (dolist (v cm)
       (let* ((c (split-string v " "  't))
-             (commandEntry (ht-get commandHashMap (car c))))
-        (if (null commandEntry)
+             (hashEntry (ht-get commandHashMap (car c))))
+        (if (null hashEntry)
             (setq checkErrors (append checkErrors (list (concat "error - no such command: " v))))
-          (if (javadebug-badCommandP commandEntry c)
-              (setq checkErrors (append checkErrors (list (concat "error - bad command format " v ". Try "  (javadebug-getCommandDescription commandEntry)))))
+          (if (javadebug-badCommandP hashEntry c)
+              (setq checkErrors (append checkErrors (list (concat "error - bad command format " v ". Try "  (javadebug-hashDescribeCommand hashEntry)))))
             (setq goodCommands
                   (-snoc
                    goodCommands
-                   (makeCommandDescription
-                    (javadebug-getEntryKey commandEntry)
+                   (javadebug-describeRunnableCommand
+                    (javadebug-hashKey hashEntry)
                     v
                     c
-                    ""
-                    commandEntry)))))))
+                    hashEntry)))))))
         (message "javadebug-check-commands cm  %s goodCommands %s checkErrors %s" cm goodCommands checkErrors)
     (list goodCommands checkErrors)))
 
@@ -369,20 +421,16 @@ All sorts of things are involved in executing a command:
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 (defun javadebug-execute-command ()
-  (if (and commandsToRun (proxyReady))
-      (let ((c (car commandsToRun)))
-        (setq commandsToRun (cdr commandsToRun))
-        (setq runningCommand
-              (makeCommandDescription
-               (getKeyFromCommandDescription c)
-               (getEnteredFromCommandDescription c)
-               (getSplitFromCommandDescription c)
-               (javadebug-finalCommand (getEntryCommandDescription c)  (getSplitFromCommandDescription c))
-               (getEntryCommandDescription c)))
-        (message "javadebug-execute-command  %s" runningCommand)
-        (ring-insert javadebug-ring (getEnteredFromCommandDescription runningCommand))
-        (writeStringToBuffer proxyProcess (concat "\n" commandHeadline (getEnteredFromCommandDescription runningCommand) "\n"))
-        (process-send-string proxyProcess (concat  (getFinishedFromCommandDescription runningCommand) "\n")))))
+  (when (and commandsToRun (proxyReady))
+    (setq runningCommand (car commandsToRun))
+    (setq commandsToRun (cdr commandsToRun))
+    (message "javadebug-execute-command  runningCommand %s commandsToRun %s" runningCommand commandsToRun)
+    (ring-insert javadebug-ring (getEnteredFromCommandDescription runningCommand))
+    (writeStringToBuffer proxyProcess (concat "\n" commandHeadline (getEnteredFromCommandDescription runningCommand) "\n"))
+    (javadebug-doCommand
+     (getCommandHashEntry runningCommand)
+     proxyProcess
+     (getSplitFromCommandDescription runningCommand))))
 #+END_SRC
 
 **** When Does the Proxy Finish a Command
@@ -401,7 +449,7 @@ If a command finishes the proxy is ready so run, if available, the next command.
   (when
       (and runningCommand
            (or (string= (car args) "error")
-               (javadebug-checkProxyDone (getEntryCommandDescription runningCommand) args)))
+               (javadebug-checkProxyDone (getCommandHashEntry runningCommand) args)))
       (setq runningCommand ())
       (javadebug-execute-command)))
 #+END_SRC

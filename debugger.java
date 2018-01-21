@@ -69,15 +69,16 @@ public class debugger
         out.println("proxy,started");
 
         try {
+                    out.println("go");
             BufferedReader in = new BufferedReader(new InputStreamReader(input));
-
+out.println("gone");
             for (String s = in.readLine().trim();
                  !s.equalsIgnoreCase("exit");
                  s = in.readLine().trim())   {
-
+                System.out.println("received :" + s);
                 if (!s.isEmpty()) {
 
-                    String [] tokens = s.split("[ \t]+");
+                    String [] tokens = s.split(",");
                     expr(tokens,
                          keywords.get(tokens [0].toLowerCase().trim()),
                          out);
