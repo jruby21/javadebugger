@@ -1,3 +1,4 @@
+package com.github.jruby21.javadebugger;
 
 import com.sun.jdi.Field;
 import com.sun.jdi.ObjectReference;
@@ -50,7 +51,7 @@ class EventReader extends Thread
                         if (event instanceof BreakpointEvent) {
                             BreakpointEvent bp = (BreakpointEvent) event;
                             out.println("breakpoint,"
-                                               + ((Integer) bp.request().getProperty(debugger.NumberProperty)).intValue()
+                                               + ((Integer) bp.request().getProperty(JavaDebuggerProxy.NumberProperty)).intValue()
                                                + "," + (new DebuggerThread(bp.thread())).toString()
                                                + "," + (new DebuggerLocation(bp.location())).toString());
                         } else if (event instanceof StepEvent) {

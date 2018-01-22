@@ -1,3 +1,5 @@
+package com.github.jruby21.javadebugger;
+
 import com.sun.jdi.IncompatibleThreadStateException;
 import com.sun.jdi.ThreadReference;
 

@@ -2,6 +2,8 @@
 // /home/jruby/tools/jdk1.8.0_131/bin/java -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" -agentlib:jdwp=transport=dt_socket,address=localhost:8000,server=y,suspend=y foo
 // /home/jruby/tools/jdk1.8.0_131/bin/javac -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" debugger.java
 
+package com.github.jruby21.javadebugger;
+
 import com.sun.jdi.AbsentInformationException;
 import com.sun.jdi.Bootstrap;
 import com.sun.jdi.IncompatibleThreadStateException;
@@ -29,8 +31,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-public class debugger
+   
+public class JavaDebuggerProxy
 {
     public static final String NumberProperty = "breakpointNumber";
 
@@ -38,11 +40,11 @@ public class debugger
     private EventReader    er        = null;
     private int                 bpcount = 0;
 
-    private enum TOKEN {ARGUMENTS, ATTACH, BACK, BREAK, BREAKS, CLEAR, CONTINUE, DONE, FRAME, INTO, LOCALS, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
+    private enum TOKEN { ATTACH, BACK, BREAK, BREAKS, CLEAR, CONTINUE, DONE, FRAME, INTO, LOCALS, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
 
     public static void main(String args[]) throws Exception    {
 
-        debugger d = new debugger();
+        JavaDebuggerProxy d = new JavaDebuggerProxy();
         d.go(System.in, System.out);
     }
 
@@ -69,15 +71,12 @@ public class debugger
         out.println("proxy,started");
 
         try {
-                    out.println("go");
             BufferedReader in = new BufferedReader(new InputStreamReader(input));
-out.println("gone");
+
             for (String s = in.readLine().trim();
                  !s.equalsIgnoreCase("exit");
                  s = in.readLine().trim())   {
-                System.out.println("received :" + s);
                 if (!s.isEmpty()) {
-
                     String [] tokens = s.split(",");
                     expr(tokens,
                          keywords.get(tokens [0].toLowerCase().trim()),
@@ -240,16 +239,20 @@ out.println("gone");
             try {
                 long                            breakpointId = Long.parseLong(tokens [1]);
                 List<BreakpointRequest> bres           = vm.eventRequestManager().breakpointRequests();
-
+                BreakpointRequest         toClear      = null;
+                
                 for (BreakpointRequest b : bres)  {
-
                     if (((Integer) b.getProperty(NumberProperty)).intValue() == breakpointId)  {
-                        b.disable();
-                        out.println("cleared," + breakpointId);
+                        toClear = b;
                     }
                 }
 
-                out.println("error,no breakpoint number " + tokens [1]);
+                if (toClear != null) {
+                    toClear.disable();
+                    out.println("cleared," + breakpointId);
+                } else {
+                    out.println("error,no breakpoint number " + tokens [1]);
+                }
             } catch (NumberFormatException e) {
                 out.println("error,breakpointId should be numeric not " + tokens [1]);
             }
@@ -485,11 +488,11 @@ out.println("gone");
     }
 
     class CommandDescription    {
-        public debugger.TOKEN token;
-        public int                     length;
-        public String                format;
+        public TOKEN  token;
+        public int        length;
+        public String   format;
 
-        CommandDescription(debugger.TOKEN t, int len, String s)
+        CommandDescription(TOKEN t, int len, String s)
         {
             token  = t;
             length = len;

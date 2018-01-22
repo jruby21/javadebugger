@@ -31,17 +31,28 @@
 
 *** Start the proxy
 
-The proxy receives commands from this elisp program sends commands to the proxy
-on stdin and replies on stdout.
+The proxy runs as a sub process to emacs. The proxy connects to the target
+process and handles the JDI interface. This elisp program sends commands to the
+proxy on stdin and receives replies on stdout.
 
+#+BEGIN_SRC emacs-lisp :noweb-ref start-proxy
+(defcustom javadebugger-proxy
+  "java -cp ~/javadebugger/src/main/java/com/github/jruby21/javadebugger/JavaDebuggerProxy:~/jdk1.8.0_131/lib/tools.jar com.github.jruby21.javadebugger.JavaDebuggerProxy"  
+  "full command to run javadebugger proxy" 
+  :type '(string)
+  :group 'javadebugger)
+#+END_SRC
+
+Start the proxy and set the filter which handles strings received on stdin from
+the proxy.  There is a special command (proxy) that does nothing but wait for
+the proxy to signal that it has started.
 
 #+BEGIN_SRC emacs-lisp :noweb-ref start-proxy
 
-;; Here's a special command that just waits for the proxy to signal that it
-;; started.
+(setq proxyProcess (apply 'start-process "javadebuggerProxy"  (current-buffer) (split-string javadebugger-proxy)))
+(set-process-filter proxyProcess 'javadebug-insertion-filter)
 
 (setq commandsToRun ())
-(setq jdbuggerString "")
 
 (setq runningCommand
       (javadebug-describeRunnableCommand
@@ -55,17 +66,6 @@ on stdin and replies on stdout.
         (lambda (c) "")
         (lambda (r) (and (string= (car r) "proxy") (string= (nth 1 r) "started"))))))
 
-
-(setq proxyProcess
-      (start-process
-       "jdbProxy"
-       (current-buffer)
-       "/home/jruby/tools/jdk1.8.0_131/bin/java"
-       "-cp"
-       "/home/jruby/tmp/jdb/:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar"
-       "debugger"))
-
-(set-process-filter proxyProcess 'javadebug-insertion-filter)
 #+END_SRC
 
 *** Commands Sent to the Proxy
@@ -178,14 +178,16 @@ Support commands are kept in a hash table
                                    "frame,%s,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c))
                                    (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c)))))
-                               (lambda (r) (string= (car r) "frame")))
+                               (lambda (r) (string= (car r) "arguments")))
    (javadebug-makeCommandHashEntry "help"
                                (lambda (c) ())
                                "help"
                                (lambda (proxy c)
                                  (dolist (v
                                           (sort (ht-map (lambda (key value) (javadebug-hashDescribeCommand value)) commandHashMap) 'string<))
-                                   (writeStringToBuffer proxy (concat v "\n"))))
+                                   (writeStringToBuffer proxy (concat v "\n")))
+                                 (setq runningCommand ())
+                                 (javadebug-fix-output-buffer proxyProcess))
                                (lambda (r) (string= (car r) "help")))
    (javadebug-makeCommandHashEntry "into"
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
@@ -274,7 +276,7 @@ Support commands are kept in a hash table
                                    "this,%s,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c))
                                    (if (< (length c) 3) "0" (nth 2 c)))))
-                               (lambda (r) (string= (car r) "this)")))
+                               (lambda (r) (string= (car r) "this")))
    (javadebug-makeCommandHashEntry "threads"
                                    (lambda (c) (/= (length c) 1))
                                    "threads"
@@ -376,12 +378,12 @@ This is how a CommandDescription gets on the list of commands awaiting execution
   (let* ((r (javadebug-check-commands com))
          (good (javadebug-check-commands-good r))
          (bad  (javadebug-check-commands-bad r)))
-    (if bad
-        (dolist (v bad)
-          (writeStringToBuffer proxyProcess (concat v "\n")))
-      (setq commandsToRun (append commandsToRun good))))
-      (message "javadebug-add-commands commandsToRun %s runningCommand %s" commandsToRun runningCommand)
-      (javadebug-execute-command))
+    (if (null bad)
+        (setq commandsToRun (append commandsToRun good))
+      (dolist (v bad)
+        (writeStringToBuffer proxyProcess (concat v "\n")))
+      (javadebug-fix-output-buffer proxyProcess)))
+  (javadebug-execute-command))
 #+END_SRC
 
 **** What command is the debugger running now?
@@ -464,34 +466,39 @@ function named javadebug-proxy-string-received. See below.
   "Abnormal hook run on reception of a string from the proxy."
   :type 'hook
   :options '(javadebug-proxy-string-received)
-  :group 'javadebug)
+  :group 'javadebugger)
 #+END_SRC
 
 **** Read a Response
 
 The proxy sends data to this elisp program through stdout. That data is
-manifested to this program when the following routine is mysteriously and
-unpredictably run. That's just how asynchronous processes work in emacs.
+manifested to this program when the following routine runs without warning.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(setq javadebugger-receivedFromProxy "")
+
 (defun javadebug-insertion-filter (proc string)
   (message "Received: %s :EndReceived" string)
-  (setq jdbuggerString (concat jdbuggerString string))
-  (if (s-ends-with? "\n" jdbuggerString)
-      (let ((com (split-string jdbuggerString "\n" 't)))
-        (message "javadebug-insertion-filter jdbuggerString: %s com %s" jdbuggerString com)
-        (setq jdbuggerString ())
+  (setq javadebugger-receivedFromProxy (concat javadebugger-receivedFromProxy string))
+  (if (s-ends-with? "\n" javadebugger-receivedFromProxy)
+      (let ((com (split-string javadebugger-receivedFromProxy "\n" 't)))
+        (message "javadebug-insertion-filter javadebugger-receivedFromProxy: %s com %s" javadebugger-receivedFromProxy com)
+        (setq javadebugger-receivedFromProxy "")
         (dolist (c com)
           (if (not (s-blank? c))
               (let ((args (split-string c ",")))
                 (run-hook-with-args 'javadebug-mode-functions proc (car args) (cdr args))
                 (javadebug-checkForCompletedCommand args))))
-        ;; make the output buffer right
-        (when (and (buffer-live-p (process-buffer proc))
-                   (get-buffer-window (process-buffer proc)))
-          (select-window (get-buffer-window (process-buffer proc)))
-          (goto-char (point-max))
-          (insert "\n")))))
+        (javadebug-fix-output-buffer proc))))
+
+;; make the output buffer right
+(defun javadebug-fix-output-buffer (proc)
+  (when (and (buffer-live-p (process-buffer proc))
+             (get-buffer-window (process-buffer proc)))
+    (select-window (get-buffer-window (process-buffer proc)))
+    (goto-char (point-max))
+    (insert "\n")))
 
 #+END_SRC
 
@@ -517,8 +524,13 @@ here, probably, as a list of strings.
         (writeStringToBuffer proc (concat "Breakpoint created at " (nth 1 args) "\n"))))
    ((string= act "breakpoint")
       (reportBreak (concat "breakpoint " (-first-item args))  (cdr (member "thread" args)) (cdr (member "location" args))))
+   ((string= act "breakpoints")
+    (dolist (v (-split-on "breakpoint" args))
+      (writeStringToBuffer proc (concat (s-join " " v) "\n"))))
    ((string= act "classloaded")
     (writeStringToBuffer proc (concat "Class " (car args) " loaded.\n")))
+   ((string= act "cleared")
+    (writeStringToBuffer proc (concat "cleared breakpoint number " (car args) ".\n")))
    ((string= act "error")
     (writeStringToBuffer proc (concat act " "  (s-join  " " args) "\n")))
    ((string= act "exception")
@@ -771,14 +783,20 @@ we can get this, maybe not.
 ** OK, start her up
 
 #+BEGIN_SRC emacs-lisp :noweb tangle :tangle bugged.el
-(defun javadebugMode  (px src mn)
-    (interactive "Dproxy directory: \nDsource root:: \nMmain class ")
+(defun javadebugMode  (src mn host port)
+    (interactive "Droot of source tree: \nMmain class: \nMhost: \nMport number: ")
     (message "startProc")
     (find-file (concat mn (format-time-string ".%Y,%m.%d.%H.%M.%S") ".org"))
     (insert "#+STARTUP: showeverything\n")
     (goto-char (point-max))
-    (insert (concat "\n\n" sessionHeadline "Starting debugger session " (current-time-string) ".\n\tProxy directory: " px ".\n\tSource root: " src ".\n\tMain class: " mn ".\n\n"));
-    (cd (file-name-as-directory px))
+    (insert
+     (concat
+      "\n\n" sessionHeadline
+      "Starting debugger session " (current-time-string)
+      ".\n\tSource directory: " src
+      ".\n\tMain class: " mn
+      ".\n\tHost: " host
+      ".\n\tPort: "  port ".\n\n"));
     (delete-other-windows)
     (javadebug-mode)
     (add-hook 'javadebug-mode-functions 'javadebug-proxy-string-received)
@@ -793,6 +811,6 @@ we can get this, maybe not.
 
     (goto-char (point-max))
     (set-marker (process-mark proxyProcess) (point))
-    (insert (format "attach localhost 8000;prepare %s;load;break %s main;continue" mn mn))
+    (insert (format "attach %s %s;prepare %s;load;break %s main;continue" host port mn mn))
     (javadebug-newline))
 #+END_SRC

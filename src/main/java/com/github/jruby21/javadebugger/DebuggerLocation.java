@@ -1,3 +1,5 @@
+package com.github.jruby21.javadebugger;
+
 import java.io.File;
 import com.sun.jdi.AbsentInformationException;
 import com.sun.jdi.Location;

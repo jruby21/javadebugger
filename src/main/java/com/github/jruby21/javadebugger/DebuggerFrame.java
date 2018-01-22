@@ -1,3 +1,5 @@
+package com.github.jruby21.javadebugger;
+
 import com.sun.jdi.AbsentInformationException;
 import com.sun.jdi.ArrayReference;
 import com.sun.jdi.ArrayType;
