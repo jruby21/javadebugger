@@ -7,9 +7,11 @@ package com.github.jruby21.javadebugger;
 import com.sun.jdi.AbsentInformationException;
 import com.sun.jdi.Bootstrap;
 import com.sun.jdi.IncompatibleThreadStateException;
+import com.sun.jdi.InvalidStackFrameException;
 import com.sun.jdi.Location;
 import com.sun.jdi.Method;
 import com.sun.jdi.ReferenceType;
+import com.sun.jdi.StackFrame;
 import com.sun.jdi.ThreadReference;
 import com.sun.jdi.VirtualMachine;
 
@@ -19,6 +21,7 @@ import com.sun.jdi.connect.IllegalConnectorArgumentsException;
 
 import com.sun.jdi.request.BreakpointRequest;
 import com.sun.jdi.request.ClassPrepareRequest;
+import com.sun.jdi.request.ExceptionRequest;
 import com.sun.jdi.request.StepRequest;
 
 import java.io.BufferedReader;
@@ -31,16 +34,18 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-   
+
 public class JavaDebuggerProxy
 {
     public static final String NumberProperty = "breakpointNumber";
 
-    private VirtualMachine vm       = null;
-    private EventReader    er        = null;
-    private int                 bpcount = 0;
+    private VirtualMachine vm           = null;
+    private EventReader     er             = null;
+    private int                         bpcount = 0;
 
-    private enum TOKEN { ATTACH, BACK, BREAK, BREAKS, CLEAR, CONTINUE, DONE, FRAME, INTO, LOCALS, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
+    private DebuggerOutput debuggerOutput = new DebuggerOutput(System.out);
+
+    private enum TOKEN { ATTACH, BACK, BREAK, BREAKS, CATCH, CLEAR, CONTINUE, DONE, FRAME, INTO, LOCALS, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
 
     public static void main(String args[]) throws Exception    {
 
@@ -53,22 +58,23 @@ public class JavaDebuggerProxy
         HashMap<String, CommandDescription> keywords = new HashMap<String, CommandDescription>();
 
         keywords.put("attach",    new CommandDescription(TOKEN.ATTACH, 3, "attach hostname port"));
-        keywords.put("back",      new CommandDescription(TOKEN.BACK, 2, "back thread-id"));
+        keywords.put("back",       new CommandDescription(TOKEN.BACK, 2, "back thread-id"));
         keywords.put("break",     new CommandDescription(TOKEN.BREAK, 3, "break class-name <line-number|method name>"));
         keywords.put("breaks",    new CommandDescription(TOKEN.BREAKS, 1, "breaks"));
-        keywords.put("clear",      new CommandDescription(TOKEN.CLEAR, 2, "clear breakpoint-number"));
+        keywords.put("clear",       new CommandDescription(TOKEN.CLEAR, 2, "clear breakpoint-number"));
+        keywords.put("catch",      new CommandDescription(TOKEN.CATCH, 2, "catch on|off"));
         keywords.put("continue", new CommandDescription(TOKEN.CONTINUE, 1, "continue"));
         keywords.put("frame",     new CommandDescription(TOKEN.FRAME, 3, "frame thread-id frame-id"));
-        keywords.put("into",        new CommandDescription(TOKEN.INTO, 2, "back thread-id"));
-        keywords.put("next",       new CommandDescription(TOKEN.NEXT, 2, "back thread-id"));
+        keywords.put("into",         new CommandDescription(TOKEN.INTO, 2, "back thread-id"));
+        keywords.put("next",        new CommandDescription(TOKEN.NEXT, 2, "back thread-id"));
         keywords.put("prepare",  new CommandDescription(TOKEN.PREPARE, 2, "prepare main-class"));
-        keywords.put("quit",        new CommandDescription(TOKEN.QUIT, 1, "quit"));
-        keywords.put("run",        new CommandDescription(TOKEN.RUN, 1, "run"));
-        keywords.put("stack",     new CommandDescription(TOKEN.STACK, 2, "stack thread-id"));
-        keywords.put("this",       new CommandDescription(TOKEN.THIS, 3, "this thread-id frame-id"));
+        keywords.put("quit",         new CommandDescription(TOKEN.QUIT, 1, "quit"));
+        keywords.put("run",         new CommandDescription(TOKEN.RUN, 1, "run"));
+        keywords.put("stack",      new CommandDescription(TOKEN.STACK, 2, "stack thread-id"));
+        keywords.put("this",         new CommandDescription(TOKEN.THIS, 3, "this thread-id frame-id"));
         keywords.put("threads",  new CommandDescription(TOKEN.THREAD, 1, "threads"));
 
-        out.println("proxy,started");
+        debuggerOutput.output_proxyStarted( );
 
         try {
             BufferedReader in = new BufferedReader(new InputStreamReader(input));
@@ -83,18 +89,11 @@ public class JavaDebuggerProxy
                          out);
                 }
             }
-        } catch (IllegalArgumentException e) {
-            out.println("error,IllegalArgumentException," + e.toString());
-            e.printStackTrace(out);
-        } catch (IOException e) {
-            out.println("error,IOException," + e.toString());
-            e.printStackTrace(out);
         } catch (Throwable t) {
-            out.println("error,thowable," + t.toString());
-            t.printStackTrace(out);
+            debuggerOutput.output_internalException(t);
         } finally {
-            out.println("proxy,exit");
-            out.flush();
+            debuggerOutput.output_proxyExited( );
+            debuggerOutput.close();
             if (vm != null) {
                 vm.exit(0);
             }
@@ -104,17 +103,19 @@ public class JavaDebuggerProxy
 
     void expr(String [] tokens, CommandDescription command, PrintStream out)   {
 
-        DebuggerThread        tr            = null;
+        DebuggerThread  tr   = null;
+        ThreadReference trr  = null;
+        StackFrame            sf    = null;
 
         if (command == null)  {
 
-            out.println("error,unknown command :" + tokens [0]);
+            debuggerOutput.output_error("unknown command :" + tokens [0]);
             return;
         }
 
         if (tokens.length != command.length)  {
 
-            out.println("error," + command.format);
+            debuggerOutput.output_error(command.format);
             return;
         }
 
@@ -126,36 +127,44 @@ public class JavaDebuggerProxy
 
             if (tokens [i].isEmpty())   {
 
-                out.println("error,field " + i + " in command is empty.");
+                debuggerOutput.output_error("field " + i + " in command is empty.");
                 return;
             }
         }
 
-        switch (command.token)   {
+        if (vm == null
+            && command.token != TOKEN.ATTACH
+            && command.token != TOKEN.QUIT) {
 
-        case ATTACH:
+            out.println("error,no virtual machine");
+            return;
+        }
 
-            attach(tokens [1], tokens [2], out);
-            break;
+        try {
 
-        case BACK:
+            switch (command.token)   {
 
-            step(tokens [1],
-                 StepRequest.STEP_LINE,
-                 StepRequest.STEP_OUT);
+            case ATTACH:
 
-            break;
+                attach(tokens [1], tokens [2]);
+                break;
+
+            case BACK:
+
+                step(tokens [1],
+                     StepRequest.STEP_LINE,
+                     StepRequest.STEP_OUT);
+
+                break;
 
 
-        case BREAK:
-
-            try  {
+            case BREAK:
 
                 List<ReferenceType> classes = vm.classesByName(tokens [1]);
 
                 if (classes == null || classes.isEmpty())  {
 
-                    out.println("error,no class named " + tokens [1]);
+                    debuggerOutput.output_error("no class named " + tokens [1]);
                     break;
                 }
 
@@ -172,7 +181,7 @@ public class JavaDebuggerProxy
                     List<Method> m = classes.get(0).methodsByName(tokens [2]);
 
                     if (m == null || m.isEmpty()) {
-                        out.println("error,no method named " + tokens [2]);
+                        debuggerOutput.output_error("no method named " + tokens [2]);
                         break;
                     }
 
@@ -180,15 +189,14 @@ public class JavaDebuggerProxy
                 }
 
                 if (locs == null || locs.isEmpty())    {
-                    out.println("error,no line/method named " + tokens [2]);
+                    debuggerOutput.output_error("no line/method named " + tokens [2]);
                     break;
                 }
 
-                Location                       bl  = locs.get(0);
-                BreakpointRequest         br  = null;
-                List<BreakpointRequest> brs = vm.eventRequestManager().breakpointRequests();
+                Location                                   bl  = locs.get(0);
+                BreakpointRequest              br  = null;
 
-                for (BreakpointRequest b : brs)  {
+                for (BreakpointRequest b : vm.eventRequestManager().breakpointRequests())  {
 
                     if (bl.equals(b.location())) {
                         br = b;
@@ -201,46 +209,74 @@ public class JavaDebuggerProxy
                 }
 
                 br.enable();
-                out.println("break," + br.getProperty(NumberProperty).toString() + ",created," + bl.toString());
-            } catch (NumberFormatException e) {
-                out.println("error,line nunmber must be an integer.");
-            } catch (AbsentInformationException a) {
-                out.println("error,no such line number.");
-            }
+                debuggerOutput.output_breakpointCreated (((Integer) br.getProperty(NumberProperty)).intValue(), bl);
 
-            break;
+                break;
 
 
-        case BREAKS:
+            case BREAKS:
 
-            List<BreakpointRequest> brs = vm.eventRequestManager().breakpointRequests();
-            BreakpointRequest []      bps = new BreakpointRequest [500];
+                BreakpointRequest []           bps = new BreakpointRequest [500];
 
-            out.print("breakpoints");
-
-            for (BreakpointRequest b : brs)  {
-                bps [((Integer) b.getProperty(NumberProperty)).intValue()] = b;
-            }
-
-            for (int i = 0; i != bps.length; i++)   {
-
-                if (bps [i] != null && bps [i].isEnabled()) {
-
-                    out.print(",breakpoint," + i + "," + (new DebuggerLocation(bps [i].location())).toString());
+                for (BreakpointRequest b : vm.eventRequestManager().breakpointRequests())  {
+                    bps [((Integer) b.getProperty(NumberProperty)).intValue()] = b;
                 }
-            }
 
-            out.print("\n");
-            break;
+                debuggerOutput.output_breakpointList();
+
+                for (int i = 0; i != bps.length; i++)   {
+
+                    if (bps [i] != null && bps [i].isEnabled()) {
+
+                        debuggerOutput.output_integer(i);
+                        debuggerOutput.outputLocation(bps [i].location());
+                    }
+                }
+
+                debuggerOutput.outputEnd();
+                break;
 
 
-        case CLEAR:
+            case CATCH:
+                boolean                      enable = tokens [1].equalsIgnoreCase("on");
+                ExceptionRequest  er         = null;
 
-            try {
-                long                            breakpointId = Long.parseLong(tokens [1]);
-                List<BreakpointRequest> bres           = vm.eventRequestManager().breakpointRequests();
-                BreakpointRequest         toClear      = null;
-                
+                for (ExceptionRequest e : vm.eventRequestManager().exceptionRequests())
+
+                    {
+                        if (e.exception() == null)
+
+                            er = e;
+                    }
+
+                if (er == null)
+
+                    {
+                        er = vm.eventRequestManager().createExceptionRequest(null, true, true);
+                    }
+
+                if (enable)
+
+                    {
+                        er.enable();
+                    }
+
+                else
+
+                    {
+                        er.disable();
+                    }
+
+                break;
+
+
+
+            case CLEAR:
+
+                int                                               breakpointId     = Integer.parseInt(tokens [1]);
+                List<BreakpointRequest> bres                   = vm.eventRequestManager().breakpointRequests();
+                BreakpointRequest              toClear             = null;
+
                 for (BreakpointRequest b : bres)  {
                     if (((Integer) b.getProperty(NumberProperty)).intValue() == breakpointId)  {
                         toClear = b;
@@ -249,153 +285,120 @@ public class JavaDebuggerProxy
 
                 if (toClear != null) {
                     toClear.disable();
-                    out.println("cleared," + breakpointId);
+                    debuggerOutput.output_breakpointCleared(breakpointId);
                 } else {
-                    out.println("error,no breakpoint number " + tokens [1]);
+                    debuggerOutput.output_error("no breakpoint number " + tokens [1]);
                 }
-            } catch (NumberFormatException e) {
-                out.println("error,breakpointId should be numeric not " + tokens [1]);
-            }
 
-            break;
+                break;
 
 
-        case FRAME:
+            case FRAME:
 
-            tr = getThread(tokens [1]);
+                // sf = getThreadReference(tokens [1]).frame(Integer.parseInt(tokens [2]));
 
-            if (tr == null) {
+                // out.println("locals,"
+                //             + fr.showLocals()
+                //             + "\narguments,"
+                //             + fr.showArguments());
 
-                out.println("error,no such thread");
 
-            } else {
+                break;
 
-                try {
-                    DebuggerFrame fr = tr.getFrame(Integer.parseInt(tokens [2]));
-                    out.println("locals,"
-                                + fr.showLocals()
-                                + "\narguments,"
-                                + fr.showArguments());
-                } catch (NumberFormatException e) {
-                    out.println("error,frame id must be an integer");
-                }
-            }
+            case INTO:
 
-            break;
+                step(tokens [1],
+                     StepRequest.STEP_LINE,
+                     StepRequest.STEP_INTO);
 
-        case INTO:
+                break;
 
-            step(tokens [1],
-                 StepRequest.STEP_LINE,
-                 StepRequest.STEP_INTO);
+            case NEXT:
 
-            break;
+                step(tokens [1],
+                     StepRequest.STEP_LINE,
+                     StepRequest.STEP_OVER);
 
-        case NEXT:
+                break;
 
-            step(tokens [1],
-                 StepRequest.STEP_LINE,
-                 StepRequest.STEP_OVER);
-
-            break;
-
-        case PREPARE:
-
-            if (vm == null) {
-
-                out.println("error,no virtual machine");
-
-            } else {
+            case PREPARE:
 
                 ClassPrepareRequest r = vm.eventRequestManager().createClassPrepareRequest();
                 r.addClassFilter(tokens [1]);
                 r.enable();
-                out.println("prepared," + tokens [1]);
-            }
+                debuggerOutput.output_classPrepared(tokens [1]);
+                break;
 
-            break;
+            case QUIT:
 
-        case QUIT:
-            if (vm != null) {
-                vm.exit(0);
-            }
-            out.println("proxy,exit");
-            out.flush();
-            System.exit(0);
+                debuggerOutput.output_proxyExited ( );
+                debuggerOutput.close();
+                System.exit(0);
 
-        case CONTINUE:
-        case RUN:
-
-            if (vm == null) {
-
-                out.println("error,no virtual machine");
-
-            } else {
+            case CONTINUE:
+            case RUN:
 
                 vm.resume();
-                out.println("resuming");
-            }
+                debuggerOutput.output_vmResumed ( );
+                break;
 
-            break;
 
-        case STACK:
+            case STACK:
 
-            if (null == (tr = getThread(tokens [1]))) {
+                debuggerOutput.output_stack(tokens [1]);
 
-                out.println("error,no such thread," + tokens [1]);
+                for (StackFrame sfp : getThreadReference(tokens [1]).frames()) {
 
-            } else {
-
-                out.println("stack," + tr.threadID());
-
-                for (int i = 0; i != tr.frameCount(); i++) {
-
-                    out.println("," + tr.getFrame(i).showLocation());
+                    debuggerOutput.outputLocation(sfp.location());
                 }
+
+                debuggerOutput.outputEnd();
+
+                break;
+
+
+            case THIS:
+
+                trr = getThreadReference(tokens[1]);
+                debuggerOutput.output_this(trr.frame(Integer.parseInt(tokens [2])).thisObject(), trr);
+
+                break;
+
+
+            case THREAD:
+
+                debuggerOutput.output_threadList( );
+
+                for (ThreadReference ttr: vm.allThreads()) {
+
+                    debuggerOutput.outputThreadReference(ttr);
+                }
+
+                debuggerOutput.outputEnd();
+
+                break;
+
+
+            default:
+                debuggerOutput.output_error("unknown command :" + tokens [0]);
+                break;
             }
-
-            break;
-
-
-        case THIS:
-
-            tr = getThread(tokens [1]);
-
-            if (tr == null) {
-
-                out.println("error,no such thread," );
-
-            } else {
-
-                try  {
-                    out.println("this," + tr.getFrame(Integer.parseInt(tokens [2])).showThis());
-                } catch (NumberFormatException e) {out.println("error,frame id must be an integer," + tokens [2]);}
-            }
-
-            break;
-
-
-        case THREAD:
-
-            out.print("threads");
-
-            for (ThreadReference thr: vm.allThreads()) {
-
-                out.print("," + (new DebuggerThread(thr)).toString());
-            }
-
-            out.print("\n");
-
-            break;
-
-
-        default:
-            out.println("error,unknown command :" + tokens [0] + ":");
-            break;
+        } catch (NumberFormatException e) {
+            debuggerOutput.output_error(e.getMessage());
+        } catch (AbsentInformationException e) {
+            debuggerOutput.output_error(e.getMessage());
+        } catch (IncompatibleThreadStateException e) {
+            debuggerOutput.output_error(e.getMessage());
+        } catch (InvalidStackFrameException e) {
+            debuggerOutput.output_error(e.getMessage());
+        } catch (IllegalArgumentException e) {
+            debuggerOutput.output_error(e.getMessage());
+        } catch (IndexOutOfBoundsException e) {
+            debuggerOutput.output_error(e.getMessage());
         }
     }
 
-    private void attach(String host, String port, PrintStream out)  {
+    private void attach(String host, String port)  {
         try {
             List<AttachingConnector> l = Bootstrap.virtualMachineManager().attachingConnectors();
 
@@ -411,7 +414,7 @@ public class JavaDebuggerProxy
 
             if (ac == null)  {
 
-                out.println("error,unable to locate ProcessAttachingConnector");
+                debuggerOutput.output_error("unable to locate ProcessAttachingConnector");
                 return;
             }
 
@@ -424,30 +427,29 @@ public class JavaDebuggerProxy
 
             if (vm == null) {
 
-                out.println("error,failed to create virtual machine");
+                debuggerOutput.output_error("failed to create virtual machine");
 
             } else {
-
-                new EventReader(vm, out).start();
-                out.println("vm,created");
+                new EventReader(vm, debuggerOutput).start();
+                debuggerOutput.output_vmCreated( );
             }
         } catch (IOException | IllegalConnectorArgumentsException e) {
-            out.println("exception, " + e.toString());
+            debuggerOutput.output_internalException(e);
         }
     }
 
     private void step(String threadId, int size, int depth)  {
 
-        DebuggerThread tr = getThread(threadId);
+        ThreadReference tr = getThreadReference(threadId);
 
         if (tr != null)  {
 
             List<StepRequest> srl = vm.eventRequestManager().stepRequests();
-            StepRequest sr = null;
+            StepRequest              sr  = null;
 
             for (StepRequest s : srl)  {
 
-                if (s.thread()   == tr.getThreadReference()
+                if (s.thread()   == tr
                     && s.size()  == size
                     && s.depth() == depth)
 
@@ -456,9 +458,7 @@ public class JavaDebuggerProxy
 
             if (sr == null)  {
 
-                sr = vm.eventRequestManager().createStepRequest(tr.getThreadReference(),
-                                                                size,
-                                                                depth);
+                sr = vm.eventRequestManager().createStepRequest(tr, size, depth);
 
                 sr.addClassExclusionFilter("java.*");
                 sr.addClassExclusionFilter("sun.*");
@@ -466,30 +466,33 @@ public class JavaDebuggerProxy
             }
 
             if (sr != null)  {
+                debuggerOutput.output_stepCreated ( );
                 sr.addCountFilter(1);
                 sr.enable();
                 vm.resume();
+            } else {
+                debuggerOutput.output_error("step creation failed");
             }
         }
     }
 
-    private DebuggerThread getThread(String id) {
-        try {
-            long threadId = Long.parseLong(id);
+    private ThreadReference getThreadReference(String id)
+        throws NumberFormatException, IllegalArgumentException
+    {
+        long tid = Long.parseLong(id);
 
-            for (ThreadReference thr: vm.allThreads()) {
-                if (thr.uniqueID() == threadId) {
-                    return new DebuggerThread(thr);
-                }
+        for (ThreadReference tr: vm.allThreads()) {
+            if (tr.uniqueID() == tid) {
+                return tr;
             }
-        } catch (NumberFormatException e) {}
+        }
 
-        return null;
+        throw new IllegalArgumentException("no thread with id " + id);
     }
 
     class CommandDescription    {
         public TOKEN  token;
-        public int        length;
+        public int          length;
         public String   format;
 
         CommandDescription(TOKEN t, int len, String s)

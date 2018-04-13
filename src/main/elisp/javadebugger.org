@@ -37,8 +37,8 @@ proxy on stdin and receives replies on stdout.
 
 #+BEGIN_SRC emacs-lisp :noweb-ref start-proxy
 (defcustom javadebugger-proxy
-  "java -cp ~/javadebugger/src/main/java/com/github/jruby21/javadebugger/JavaDebuggerProxy:~/jdk1.8.0_131/lib/tools.jar com.github.jruby21.javadebugger.JavaDebuggerProxy"  
-  "full command to run javadebugger proxy" 
+  "java -cp ~/javadebugger/src/main/java/com/github/jruby21/javadebugger/JavaDebuggerProxy:~/jdk1.8.0_131/lib/tools.jar com.github.jruby21.javadebugger.JavaDebuggerProxy"
+  "full command to run javadebugger proxy"
   :type '(string)
   :group 'javadebugger)
 #+END_SRC
@@ -64,7 +64,329 @@ the proxy to signal that it has started.
         (lambda (c) ())
         ""
         (lambda (c) "")
-        (lambda (r) (and (string= (car r) "proxy") (string= (nth 1 r) "started"))))))
+        (list javadebugger-proxyStarted-response))))
+
+#+END_SRC
+
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(setq javadebug-response-hooks (ht-create))
+
+;; breakpointCleared
+(defconst javadebugger-breakpointCleared-response "breakpointcleared" "")
+(defvar javadebugger-breakpointCleared-hook nil)
+(setq javadebugger-breakpointCleared-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-breakpointCleared-response
+   (lambda (response) (run-hook-with-args 'javadebugger-breakpointCleared-hook (nth 1 response))))
+
+;; breakpointCreated
+(defconst javadebugger-breakpointCreated-response "breakpointcreated" "")
+(defvar javadebugger-breakpointCreated-hook nil)
+(setq javadebugger-breakpointCreated-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-breakpointCreated-response
+   (lambda (response) (run-hook-with-args 'javadebugger-breakpointCreated-hook (nth 1 response) (-slice response 2 5))))
+
+;; breakpointEntered
+(defconst javadebugger-breakpointEntered-response "breakpointentered" "")
+(defvar javadebugger-breakpointEntered-hook nil)
+(setq javadebugger-breakpointEntered-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-breakpointEntered-response
+   (lambda (response) (run-hook-with-args 'javadebugger-breakpointEntered-hook (nth 1 response) (-slice response 2 8) (-slice response 8))))
+
+;; breakpointList
+(defconst javadebugger-breakpointList-response "breakpointlist" "")
+(defvar javadebugger-breakpointList-hook nil)
+(setq javadebugger-breakpointList-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-breakpointList-response
+   (lambda (response) (run-hook-with-args 'javadebugger-breakpointList-hook
+     (mapcar (lambda (x) (list (car x) (-slice x 1))) (-partition-in-steps 4 4 (-slice response  1))))))
+
+;; classPrepared
+(defconst javadebugger-classPrepared-response "classprepared" "")
+(defvar javadebugger-classPrepared-hook nil)
+(setq javadebugger-classPrepared-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-classPrepared-response
+   (lambda (response) (run-hook-with-args 'javadebugger-classPrepared-hook (nth 1 response))))
+
+;; classUnloaded
+(defconst javadebugger-classUnloaded-response "classunloaded" "")
+(defvar javadebugger-classUnloaded-hook nil)
+(setq javadebugger-classUnloaded-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-classUnloaded-response
+   (lambda (response) (run-hook-with-args 'javadebugger-classUnloaded-hook (nth 1 response))))
+
+;; error
+(defconst javadebugger-error-response "error" "")
+(defvar javadebugger-error-hook nil)
+(setq javadebugger-error-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-error-response
+   (lambda (response) (run-hook-with-args 'javadebugger-error-hook (nth 1 response))))
+
+;; exception
+(defconst javadebugger-exception-response "exception" "")
+(defvar javadebugger-exception-hook nil)
+(setq javadebugger-exception-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-exception-response
+   (lambda (response) (run-hook-with-args 'javadebugger-exception-hook (nth 1 response) (-slice response 2 5)(nth 5 response))))
+
+;; internalException
+(defconst javadebugger-internalException-response "internalexception" "")
+(defvar javadebugger-internalException-hook nil)
+(setq javadebugger-internalException-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-internalException-response
+        (lambda (response) (run-hook-with-args 'javadebugger-internalException-hook (nth  1 response) (nth 2 response))))
+
+;; log
+(defconst javadebugger-log-response "log" "")
+(defvar javadebugger-log-hook nil)
+(setq javadebugger-log-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-log-response
+   (lambda (response) (run-hook-with-args 'javadebugger-log-hook (nth 1 response))))
+
+;; locals
+(defconst javadebugger-locals-response "locals" "")
+(defvar javadebugger-locals-hook nil)
+(setq javadebugger-locals-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-locals-response
+   (lambda (response) (run-hooks 'javadebugger-locals-hook )))
+
+;; proxyExited
+(defconst javadebugger-proxyExited-response "proxyexited" "")
+(defvar javadebugger-proxyExited-hook nil)
+(setq javadebugger-proxyExited-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-proxyExited-response
+   (lambda (response) (run-hooks 'javadebugger-proxyExited-hook )))
+
+;; proxyStarted
+(defconst javadebugger-proxyStarted-response "proxystarted" "")
+(defvar javadebugger-proxyStarted-hook nil)
+(setq javadebugger-proxyStarted-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-proxyStarted-response
+   (lambda (response) (run-hooks 'javadebugger-proxyStarted-hook )))
+
+;; stack - variable number of location triplets
+(defconst javadebugger-stack-response "stack" "")
+(defvar javadebugger-stack-hook nil)
+(setq javadebugger-stack-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-stack-response
+   (lambda (response) (run-hook-with-args 'javadebugger-stack-hook (nth 1 response) (-partition-in-steps 3 3 (-slice response 2)))))
+
+;; step
+(defconst javadebugger-step-response "step" "")
+(defvar javadebugger-step-hook nil)
+(setq javadebugger-step-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-step-response
+   (lambda (response) (run-hook-with-args 'javadebugger-step-hook  (-slice response 1 7) (-slice response 7))))
+
+;; stepCreated
+(defconst javadebugger-stepCreated-response "stepcreated" "")
+(defvar javadebugger-stepCreated-hook nil)
+(setq javadebugger-stepCreated-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-stepCreated-response
+   (lambda (response) (run-hooks 'javadebugger-stepCreated-hook )))
+
+;; this
+(defconst javadebugger-this-response "this" "")
+(defvar javadebugger-this-hook nil)
+(setq javadebugger-this-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-this-response
+   (lambda (response) (run-hooks 'javadebugger-this-hook )))
+
+;; threadList
+(defconst javadebugger-threadList-response "threadlist" "")
+(defvar javadebugger-threadList-hook nil)
+(setq javadebugger-threadList-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-threadList-response
+   (lambda (response) (run-hook-with-args 'javadebugger-threadList-hook (-partition-in-steps 6 6 (-slice response 1)))))
+
+;; threadDied
+(defconst javadebugger-threadDied-response "threaddied" "")
+(defvar javadebugger-threadDied-hook nil)
+(setq javadebugger-threadDied-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-threadDied-response
+   (lambda (response) (run-hook-with-args 'javadebugger-threadDied-hook  (-slice response 1 7))))
+
+;; threadStarted
+(defconst javadebugger-threadStarted-response "threadstarted" "")
+(defvar javadebugger-threadStarted-hook nil)
+(setq javadebugger-threadStarted-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-threadStarted-response
+   (lambda (response) (run-hook-with-args 'javadebugger-threadStarted-hook  (-slice response 1 7))))
+
+;; vmCreated
+(defconst javadebugger-vmCreated-response "vmcreated" "")
+(defvar javadebugger-vmCreated-hook nil)
+(setq javadebugger-vmCreated-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-vmCreated-response
+   (lambda (response) (run-hooks 'javadebugger-vmCreated-hook )))
+
+;; vmDied
+(defconst javadebugger-vmDied-response "vmdied" "")
+(defvar javadebugger-vmDied-hook nil)
+(setq javadebugger-vmDied-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-vmDied-response
+   (lambda (response) (run-hooks 'javadebugger-vmDied-hook )))
+
+;; vmDisconnected
+(defconst javadebugger-vmDisconnected-response "vmdisconnected" "")
+(defvar javadebugger-vmDisconnected-hook nil)
+(setq javadebugger-vmDisconnected-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-vmDisconnected-response
+   (lambda (response) (run-hooks 'javadebugger-vmDisconnected-hook )))
+
+;; vmResumed
+(defconst javadebugger-vmResumed-response "vmresumed" "")
+(defvar javadebugger-vmResumed-hook nil)
+(setq javadebugger-vmResumed-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-vmResumed-response
+   (lambda (response) (run-hooks 'javadebugger-vmResumed-hook )))
+
+;; vmStarted
+(defconst javadebugger-vmStarted-response "vmstarted" "")
+(defvar javadebugger-vmStarted-hook nil)
+(setq javadebugger-vmStarted-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-vmStarted-response
+   (lambda (response) (run-hooks 'javadebugger-vmStarted-hook )))
+#+END_SRC
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+;; breakpointCleared
+;;(add-hook 'javadebugger-breakpointCleared-hook (lambda ( breakId)
+
+;; breakpointCreated
+(add-hook 'javadebugger-breakpointCreated-hook
+          (lambda ( breakId loc)
+            (writeStringToBuffer proc (concat "Breakpoint  " breakId " created at " (javadebugger-LocationString loc)  ".\n"))))
+
+;; breakpointEntered
+(add-hook 'javadebugger-breakpointEntered-hook
+          (lambda ( breakId tr loc)
+            (reportBreak (concat "Breakpoint " breakId " entered") tr loc)))
+
+;; breakpointList
+ (add-hook 'javadebugger-breakpointList-hook
+          (lambda (breakpoints)
+            (writeOrgTableToBuffer
+             proxyProcess
+             "|id|location|\n"
+             orgTableSeperator
+             (mapcar (lambda (x) (list (nth 0 x) (concat (nth 0 (nth 1 x)) ":" (nth 1 (nth 1 x))))) breakpoints))))
+
+;; classPrepared
+(add-hook 'javadebugger-classPrepared-hook (lambda ( className)
+            (writeStringToBuffer proc (concat "class " className " loaded.\n"))))
+
+;; classUnloaded
+;;(add-hook 'javadebugger-classUnloaded-hook (lambda ( className)
+
+;; error
+(add-hook 'javadebugger-error-hook (lambda ( error)
+            (writeStringToBuffer proc (concat "Error: "  error "\n"))))
+
+;; exception
+(add-hook 'javadebugger-exception-hook (lambda ( name catch message)
+            (writeStringToBuffer proc (concat "Exception received in proxy"))))
+
+;; internalException
+(add-hook 'javadebugger-internalException-hook
+          (lambda (msg stack)
+            (writeStringToBuffer proc (concat "Internal exception in proxy: " msg "\n" stack "\n"))))
+
+;; log
+;;(add-hook 'javadebugger-log-hook (lambda ( msg)
+
+;; locals
+;;(add-hook 'javadebugger-locals-hook (lambda ()
+
+;; proxyExited
+;;(add-hook 'javadebugger-proxyExited-hook (lambda ()
+
+;; proxyStarted
+(add-hook 'javadebugger-proxyStarted-hook (lambda ()
+            (writeStringToBuffer proxyProcess "Debugger proxy started\n")))
+
+;; stack
+(add-hook 'javadebugger-stack-hook
+          (lambda (id locations)
+            (writeStringToBuffer proxyProcess (concat "Stack for thread " id " \n"))
+            (dolist (l locations)
+              (writeStringToBuffer proxyProcess (concat (javadebugger-LocationString l) "\n")))))
+
+;; step
+(add-hook 'javadebugger-step-hook
+        (lambda (tr loc)
+            (reportBreak "step" tr loc)))
+
+;; stepCreated
+;;(add-hook 'javadebugger-stepCreated-hook (lambda ()
+
+;; this
+;;(add-hook 'javadebugger-this-hook (lambda ()
+
+;; threadList
+(add-hook 'javadebugger-threadList-hook
+          (lambda (threads)
+            (writeOrgTableToBuffer
+             proxyProcess
+             threadTableTitle
+             orgTableSeperator
+             threads)))
+
+;; threadDied
+;;(add-hook 'javadebugger-threadDied-hook (lambda ( tr)
+
+;; threadStarted
+;;(add-hook 'javadebugger-threadStarted-hook (lambda ( tr)
+
+;; vmCreated
+(add-hook 'javadebugger-vmCreated-hook (lambda ()
+        (writeStringToBuffer proxyProcess "virtual machine created\n")))
+
+;; vmDied
+(add-hook 'javadebugger-vmDied-hook (lambda ()
+        (writeStringToBuffer proxyProcess "virtual machine terminated\n")))
+
+;; vmDisconnected
+(add-hook 'javadebugger-vmDisconnected-hook (lambda ()
+        (writeStringToBuffer proxyProcess "virtual machine disconnected\n")))
+
+;; vmResumed
+(add-hook 'javadebugger-vmResumed-hook (lambda ()
+        (writeStringToBuffer proxyProcess "virtual machine resuming operation.\n")))
+
+;; vmStarted
+(add-hook 'javadebugger-vmStarted-hook (lambda ()
+              (writeStringToBuffer proxyProcess "virtual machine started\n")))
+
+
+(defun javadebugger-LocationString (l) (format "%s:%s %s" (locationFile l) (locationLineNumber l) (locationMethod l)))
+
 
 #+END_SRC
 
@@ -93,6 +415,7 @@ A supported command is described by a CommandHashEntry
 Support commands are kept in a hash table
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
+
 (defconst commandHashMap
   ((lambda (x)
      (let ((h (ht-create)))
@@ -106,7 +429,7 @@ Support commands are kept in a hash table
                                                     (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
                                                     (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
                                "arguments [thread-id] [frame number]"
-                               (lambda (proxy c)
+                                (lambda (proxy c)
                                  (process-send-string
                                   proxy
                                   (format
@@ -121,7 +444,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   (format "attach,%s,%s\n" (nth 1 c) (nth 2 c))))
-                               (lambda (r) (and (string= (car r) "vm")) (string= (nth 1 r) "started")))
+                               (list javadebugger-vmCreated-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "back"
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
                                "back [thread-id]"
@@ -131,7 +454,7 @@ Support commands are kept in a hash table
                                   (format
                                    "back,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c)))))
-                               (lambda (r) (string= (car r) "step")))
+                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "break"
                                (lambda (c) (/= (length c) 3))
                                "break class-name <line-number|method name>"
@@ -139,7 +462,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   (format "break,%s,%s\n" (nth 1 c) (nth 2 c))))
-                               (lambda (r) (and (string= (car r) "break")) (string= (nth 2 r) "created")))
+                               (list javadebugger-breakpointCreated-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "breaks"
                                (lambda (c) (/= (length c) 1))
                                "breaks"
@@ -157,7 +480,7 @@ Support commands are kept in a hash table
                                   (format
                                    "clear,%s\n"
                                    (nth 1 c))))
-                               (lambda (r) (string= (car r) "step")))
+                               (list  javadebugger-breakpointCleared-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "continue"
                                (lambda (c) (/= (length c) 1))
                                "continue"
@@ -165,7 +488,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   "continue\n"))
-                               (lambda (r) (string= (car r) "resuming")))
+                               (list javadebugger-vmResumed-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "frame"
                                (lambda (c) (not (or (= (length c) 1)
                                                     (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
@@ -198,7 +521,7 @@ Support commands are kept in a hash table
                                   (format
                                    "into,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c)))))
-                               (lambda (r) (string= (car r) "step")))
+                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "load"
                                (lambda (c) (/= (length c) 1))
                                "load"
@@ -206,7 +529,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   "run\n"))
-                               (lambda (r) (string= (car r) "classloaded")))
+                               (list  javadebugger-classPrepared-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "locals"
                                (lambda (c) (not (or (= (length c) 1)
                                                     (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
@@ -229,7 +552,7 @@ Support commands are kept in a hash table
                                   (format
                                    "next,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c)))))
-                               (lambda (r) (string= (car r) "step")))
+                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "prepare"
                                (lambda (c) (/= (length c) 2))
                                "prepare [class name]"
@@ -237,7 +560,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   (format "prepare,%s\n" (nth 1 c))))
-                                (lambda (r) (string= (car r) "prepared")))
+                               (list javadebugger-classPrepared-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "quit"
                                (lambda (c) (/= (length c) 1))
                                "quit"
@@ -253,7 +576,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   "run\n"))
-                               (lambda (r) (string= (car r) "resuming")))
+                               (list javadebugger-vmResumed-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "stack"
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c))))))
                                "stack [thread-id]"
@@ -263,7 +586,7 @@ Support commands are kept in a hash table
                                   (format
                                    "stack,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c)))))
-                               (lambda (r) (string= (car r) "stack")))
+                               (list javadebugger-stack-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "this"
                                (lambda (c) (not (or (= (length c) 1)
                                                     (and (= (length c) 2)  (string-match "[0-9]+" (nth 1 c)))
@@ -284,7 +607,7 @@ Support commands are kept in a hash table
                                      (process-send-string
                                       proxy
                                       "threads\n"))
-                               (lambda (r) (string= (car r) "threads"))))))
+                               (list javadebugger-threadList-response javadebugger-error-response javadebugger-internalException-response)))))
 #+END_SRC
 
 **** Describing a Command About to be Executed
@@ -447,13 +770,12 @@ And, bien sur, if a command is running.
 If a command finishes the proxy is ready so run, if available, the next command.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defun javadebug-checkForCompletedCommand (args)
+(defun javadebug-checkForCompletedCommand (command)
   (when
       (and runningCommand
-           (or (string= (car args) "error")
-               (javadebug-checkProxyDone (getCommandHashEntry runningCommand) args)))
-      (setq runningCommand ())
-      (javadebug-execute-command)))
+           (member command (javadebug-hashProxyDoneP (getCommandHashEntry runningCommand))))
+    (setq runningCommand ())
+    (javadebug-execute-command)))
 #+END_SRC
 
 *** Handle Responses Received From  the Proxy
@@ -487,10 +809,17 @@ manifested to this program when the following routine runs without warning.
         (setq javadebugger-receivedFromProxy "")
         (dolist (c com)
           (if (not (s-blank? c))
-              (let ((args (split-string c ",")))
-                (run-hook-with-args 'javadebug-mode-functions proc (car args) (cdr args))
-                (javadebug-checkForCompletedCommand args))))
-        (javadebug-fix-output-buffer proc))))
+              (let* ((response (mapcar 's-trim (split-string c ",")))
+                     (responseHook (ht-get javadebug-response-hooks (car response))))
+                (if (not responseHook)
+                    (message (concat "unknown response " response))
+                  (funcall responseHook response)
+                  (javadebug-fix-output-buffer proc)
+                  (javadebug-checkForCompletedCommand (car response)))))))))
+
+
+;;                (run-hook-with-args 'javadebug-mode-functions proc (car args) (cdr args))
+
 
 ;; make the output buffer right
 (defun javadebug-fix-output-buffer (proc)
@@ -519,18 +848,26 @@ here, probably, as a list of strings.
          argumentsTableTitle
          orgTableSeperator
          (if (and args (car args))  (nth 0 (read-from-string (car args)))))))
-   ((string= act "break")
-    (if (string= (car args)  "created")
-        (writeStringToBuffer proc (concat "Breakpoint created at " (nth 1 args) "\n"))))
    ((string= act "breakpoint")
-      (reportBreak (concat "breakpoint " (-first-item args))  (cdr (member "thread" args)) (cdr (member "location" args))))
-   ((string= act "breakpoints")
-    (dolist (v (-split-on "breakpoint" args))
-      (writeStringToBuffer proc (concat (s-join " " v) "\n"))))
-   ((string= act "classloaded")
-    (writeStringToBuffer proc (concat "Class " (car args) " loaded.\n")))
-   ((string= act "cleared")
-    (writeStringToBuffer proc (concat "cleared breakpoint number " (car args) ".\n")))
+    (let ((second (car args)))
+      (cond
+       ((string= second "cleared")
+        (writeStringToBuffer proc (concat "breakpoint number " (nth 1 args) "cleared.\n")))
+       ((string= second "created")
+        (writeStringToBuffer proc (concat "breakpoint number " (nth 1 args) " created.\n")))
+       ((string= second "entered")
+        (reportBreak
+         (concat "breakpoint number " (nth 1) " entered ")
+         (cdr (member "thread" args))
+         (cdr (member "location" args))))
+       ((string= second "listed")
+        (dolist (v (-split-on "breakpoint" args))
+          (writeStringToBuffer proc (concat (s-join " " v) "\n")))))))
+   ((string= act "class")
+    (let ((second (car args)))
+      (cond
+       ((string= second "prepared")      (writeStringToBuffer proc (concat "class " (nth 1 args) " loaded.\n")))
+       ((string= second "unloaded") (writeStringToBuffer proc (concat "class " (nth 1 args) " unloaded.\n"))))))
    ((string= act "error")
     (writeStringToBuffer proc (concat act " "  (s-join  " " args) "\n")))
    ((string= act "exception")
@@ -546,16 +883,14 @@ here, probably, as a list of strings.
          localTableTitle
          orgTableSeperator
          (if (and args (car args))  (nth 0 (read-from-string (car args)))))))
-   ((string= act "prepared")
-    (writeStringToBuffer proc (concat "class prepare request for" (nth 1 args) "\n")))
    ((string= act "proxy")
-    (when (string= "exit" (car args))
-      (delete-process proc)
-      (writeStringToBuffer proc "Debugger proxy exited\n"))
-    (when (string= "started" (car args))
-        (writeStringToBuffer proc "Debugger proxy started\n")))
-   ((string= act "resuming")
-    (writeStringToBuffer proc "virtual machine resuming operation.\n"))
+    (let ((second (car args)))
+      (cond
+       ((string= second "exit")
+        (delete-process proc)
+        (writeStringToBuffer proc "Debugger proxy exited\n"))
+       ((string= second "started")
+        (writeStringToBuffer proc "Debugger proxy started\n")))))
    ((string= act "stack")
     (writeStringToBuffer proc (concat "thread " (car args) "\n"))
     (dolist (v (-split-on "location" (cdr args)))
@@ -575,14 +910,18 @@ here, probably, as a list of strings.
          orgTableSeperator
         (-split-on "thread" args)))
    ((string= act "vm")
-    (if (string= "started" (car args))
-        (writeStringToBuffer proc "virtual machine started\n")
-      (if (string= "created" (car args))
-          (writeStringToBuffer proc "virtual machine created\n"))))
-   ((string= act "VMDeath")
-    (writeStringToBuffer proc "target virtual machine terminated"))
-   ((string= act "VMDisconnectEvent")
-    (writeStringToBuffer proc "proxy disconnected from target virtual machine"))
+    (let ((second (car args)))
+      (cond
+       ((string= second "created")
+        (writeStringToBuffer proc "virtual machine created\n"))
+       ((string= second "died")
+        (writeStringToBuffer proc "virtual machine terminated\n"))
+       ((string= second "disconnected")
+        (writeStringToBuffer proc "virtual machine disconnected\n"))
+       ((string= second "resuming")
+        (writeStringToBuffer proc "virtual machine resuming operation.\n"))
+       ((string= second "started")
+        (writeStringToBuffer proc "virtual machine started\n")))))
    (t (writeStringToBuffer proc (format "error - unknown response %s arguments %s \n" act (if args args "null"))))))
 #+END_SRC
 
@@ -750,7 +1089,8 @@ we can get this, maybe not.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 (defun setSourceFileWindow (proc file line)
-  (let ((bug (find-file-noselect file)))
+(message (format "setsourcewindow %s | %s | %s\n" sourceDirectory file (concat sourceDirectory file)))
+  (let ((bug (find-file-noselect (concat sourceDirectory file))))
     (when (and bug (buffer-live-p (process-buffer proc)))
       (if (= (length (window-list)) 1)
           (split-window))
@@ -783,17 +1123,21 @@ we can get this, maybe not.
 ** OK, start her up
 
 #+BEGIN_SRC emacs-lisp :noweb tangle :tangle bugged.el
+
+(defvar sourceDirectory nil "Root directory of the sources for the target JAVA program")
+
 (defun javadebugMode  (src mn host port)
     (interactive "Droot of source tree: \nMmain class: \nMhost: \nMport number: ")
     (message "startProc")
     (find-file (concat mn (format-time-string ".%Y,%m.%d.%H.%M.%S") ".org"))
     (insert "#+STARTUP: showeverything\n")
     (goto-char (point-max))
+    (setq sourceDirectory (file-name-as-directory (expand-file-name src)))
     (insert
      (concat
       "\n\n" sessionHeadline
       "Starting debugger session " (current-time-string)
-      ".\n\tSource directory: " src
+      ".\n\tSource directory: " sourceDirectory
       ".\n\tMain class: " mn
       ".\n\tHost: " host
       ".\n\tPort: "  port ".\n\n"));
