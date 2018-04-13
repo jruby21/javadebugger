@@ -208,7 +208,7 @@ the proxy to signal that it has started.
 (setq javadebugger-this-hook ())
 (ht-set javadebug-response-hooks
    javadebugger-this-response
-   (lambda (response) (run-hooks 'javadebugger-this-hook )))
+   (lambda (response) (run-hook-with-args 'javadebugger-this-hook (nth 0 (read-from-string (nth 1 response))))))
 
 ;; threadList
 (defconst javadebugger-threadList-response "threadlist" "")
@@ -347,7 +347,13 @@ the proxy to signal that it has started.
 ;;(add-hook 'javadebugger-stepCreated-hook (lambda ()
 
 ;; this
-;;(add-hook 'javadebugger-this-hook (lambda ()
+(add-hook 'javadebugger-this-hook
+          (lambda (th)
+                (writeOrgTableToBuffer
+                 proxyProcess
+                 thisTableTitle
+                 orgTableSeperator
+                 th)))
 
 ;; threadList
 (add-hook 'javadebugger-threadList-hook
@@ -470,7 +476,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   "breaks\n"))
-                               (lambda (r) (string= (car r) "breakpoints")))
+                              (list javadebugger-breakpointList-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "clear"
                                (lambda (c) (or (/= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c)))))
                                "clear [breakpoint-id]"
@@ -599,7 +605,7 @@ Support commands are kept in a hash table
                                    "this,%s,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c))
                                    (if (< (length c) 3) "0" (nth 2 c)))))
-                               (lambda (r) (string= (car r) "this")))
+                               (list  javadebugger-this-response javadebugger-error-response javadebugger-internalException-response))
    (javadebug-makeCommandHashEntry "threads"
                                    (lambda (c) (/= (length c) 1))
                                    "threads"
