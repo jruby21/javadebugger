@@ -45,7 +45,7 @@ public class JavaDebuggerProxy
 
     private DebuggerOutput debuggerOutput = new DebuggerOutput(System.out);
 
-    private enum TOKEN { ATTACH, BACK, BREAK, BREAKS, CATCH, CLEAR, CONTINUE, DONE, FRAME, INTO, LOCALS, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
+    private enum TOKEN { ATTACH, BACK, BREAK, BREAKS, CATCH, CLASSES, CLEAR, CONTINUE, DONE, FIELDS, FRAME, INTO, LOCALS, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
 
     public static void main(String args[]) throws Exception    {
 
@@ -61,9 +61,11 @@ public class JavaDebuggerProxy
         keywords.put("back",       new CommandDescription(TOKEN.BACK, 2, "back thread-id"));
         keywords.put("break",     new CommandDescription(TOKEN.BREAK, 3, "break class-name <line-number|method name>"));
         keywords.put("breaks",    new CommandDescription(TOKEN.BREAKS, 1, "breaks"));
+        keywords.put("classes",   new CommandDescription(TOKEN.CLASSES, 1, "classes"));
         keywords.put("clear",       new CommandDescription(TOKEN.CLEAR, 2, "clear breakpoint-number"));
         keywords.put("catch",      new CommandDescription(TOKEN.CATCH, 2, "catch on|off"));
         keywords.put("continue", new CommandDescription(TOKEN.CONTINUE, 1, "continue"));
+        keywords.put("fields",      new CommandDescription(TOKEN.FIELDS, 2, "fields class-name"));
         keywords.put("frame",     new CommandDescription(TOKEN.FRAME, 3, "frame thread-id frame-id"));
         keywords.put("into",         new CommandDescription(TOKEN.INTO, 2, "back thread-id"));
         keywords.put("next",        new CommandDescription(TOKEN.NEXT, 2, "back thread-id"));
@@ -258,15 +260,24 @@ public class JavaDebuggerProxy
                 if (enable)
 
                     {
+                        er.addClassFilter("test.*");
                         er.enable();
+                        debuggerOutput.output_catchEnabled(true);
                     }
 
                 else
 
                     {
                         er.disable();
+                        debuggerOutput.output_catchEnabled(false);
                     }
 
+                break;
+
+
+            case CLASSES:
+
+                debuggerOutput.output_classes(vm.allClasses());
                 break;
 
 
@@ -291,6 +302,13 @@ public class JavaDebuggerProxy
                 }
 
                 break;
+
+
+            case FIELDS:
+
+                for (ReferenceType r : vm.classesByName(tokens [1])) {
+                    debuggerOutput.output_fields(r.name(), r.allFields());
+                }
 
 
             case FRAME:

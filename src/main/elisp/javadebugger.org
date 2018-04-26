@@ -74,6 +74,13 @@ the proxy to signal that it has started.
 (setq javadebug-response-hooks (ht-create))
 
 ;; breakpointCleared
+(defconst javadebugger-accessWatchpoint-response "accesswatchpoint" "")
+(defvar javadebugger-accessWatchpoint-hook nil)
+(setq javadebugger-accessWatchpoint-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-accessWatchpoint-response
+   (lambda (response) (run-hook-with-args 'javadebugger-accessWatchpoint-hook (nth1 response))))
+
 (defconst javadebugger-breakpointCleared-response "breakpointcleared" "")
 (defvar javadebugger-breakpointCleared-hook nil)
 (setq javadebugger-breakpointCleared-hook ())
@@ -106,6 +113,22 @@ the proxy to signal that it has started.
    (lambda (response) (run-hook-with-args 'javadebugger-breakpointList-hook
      (mapcar (lambda (x) (list (car x) (-slice x 1))) (-partition-in-steps 4 4 (-slice response  1))))))
 
+;; catchEnabled
+(defconst javadebugger-catchEnabled-response "catchenabled" "")
+(defvar javadebugger-catchEnabled-hook nil)
+(setq javadebugger-catchEnabled-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-catchEnabled-response
+   (lambda (response) (run-hook-with-args 'javadebugger-catchEnabled-hook (nth 1 response))))
+
+;; classes
+(defconst javadebugger-classes-response "classes" "")
+(defvar javadebugger-classes-hook nil)
+(setq javadebugger-classes-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-classes-response
+   (lambda (response) (run-hook-with-args 'javadebugger-classes-hook  (-slice response 1))))
+
 ;; classPrepared
 (defconst javadebugger-classPrepared-response "classprepared" "")
 (defvar javadebugger-classPrepared-hook nil)
@@ -136,7 +159,21 @@ the proxy to signal that it has started.
 (setq javadebugger-exception-hook ())
 (ht-set javadebug-response-hooks
    javadebugger-exception-response
-   (lambda (response) (run-hook-with-args 'javadebugger-exception-hook (nth 1 response) (-slice response 2 5)(nth 5 response))))
+   (lambda (response)
+     (run-hook-with-args
+      'javadebugger-exception-hook
+      (nth 1 response)
+      (-slice response 2 5)
+      (nth 5 response)
+      (nth 0 (read-from-string (nth 6 response))))))
+
+;; fields
+(defconst javadebugger-fields-response "fields" "")
+(defvar javadebugger-fields-hook nil)
+(setq javadebugger-fields-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-fields-response
+   (lambda (response) (run-hook-with-args 'javadebugger-classes-hook  (nth 1 response) (-partition-in-steps 8 8 (-slice response 2)))))
 
 ;; internalException
 (defconst javadebugger-internalException-response "internalexception" "")
@@ -161,6 +198,14 @@ the proxy to signal that it has started.
 (ht-set javadebug-response-hooks
    javadebugger-locals-response
    (lambda (response) (run-hooks 'javadebugger-locals-hook )))
+
+;; modification watchpoint
+(defconst javadebugger-modificationWatchpoint-response "modificationwatchpoint" "")
+(defvar javadebugger-modificationWatchpoint-hook nil)
+(setq javadebugger-modificationWatchpoint-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-modificationWatchpoint-response
+   (lambda (response) (run-hook-with-args 'javadebugger-modificationWatchpoint-hook (nth1 response) (nth2 response))))
 
 ;; proxyExited
 (defconst javadebugger-proxyExited-response "proxyexited" "")
@@ -279,6 +324,16 @@ the proxy to signal that it has started.
 ;; breakpointCleared
 ;;(add-hook 'javadebugger-breakpointCleared-hook (lambda ( breakId)
 
+;; accessWatchpoint
+(add-hook 'javadebugger-accessWatchpoint-hook
+          (lambda ( Field)
+            (writeStringToBuffer proxyProcess (concat "Access watchpoint\n"))
+            (writeOrgTableToBuffer
+             proxyProcess
+             "| Object:Field | Value "
+             orgTableSeperator
+             th)))
+
 ;; breakpointCreated
 (add-hook 'javadebugger-breakpointCreated-hook
           (lambda ( breakId loc)
@@ -298,6 +353,24 @@ the proxy to signal that it has started.
              orgTableSeperator
              (mapcar (lambda (x) (list (nth 0 x) (concat (nth 0 (nth 1 x)) ":" (nth 1 (nth 1 x))))) breakpoints))))
 
+;; catchEnabled
+ (add-hook 'javadebugger-catchEnabled-hook
+          (lambda (enabled)
+            (writeStringToBuffer
+             proc
+             (format "Exceptions %s\n" (if (string= enabled "true") "enabled" "disabled")))))
+
+;; classes
+(add-hook 'javadebugger-classes-hook
+          (lambda (classes)
+            (writeStringToBuffer
+             proc
+             "Classes\n")
+            (dolist (r classes)
+              (writeStringToBuffer
+               proc
+               (format "%s\n" r)))))
+
 ;; classPrepared
 (add-hook 'javadebugger-classPrepared-hook (lambda ( className)
             (writeStringToBuffer proc (concat "class " className " loaded.\n"))))
@@ -310,8 +383,29 @@ the proxy to signal that it has started.
             (writeStringToBuffer proc (concat "Error: "  error "\n"))))
 
 ;; exception
-(add-hook 'javadebugger-exception-hook (lambda ( name catch message)
-            (writeStringToBuffer proc (concat "Exception received in proxy"))))
+(add-hook 'javadebugger-exception-hook
+          (lambda ( name loc message stack)
+            (writeStringToBuffer
+             proc
+             (concat
+              name " occured in target at " (javadebugger-LocationString loc) "\nMessage: " message "\nStack Trace:\n"))
+            (let ((c (mapcar (lambda (x) (-slice (assoc "fields" x) 1))  (-slice (assoc "contents"  stack) 1))))
+              (-each
+                  (-partition 3
+                              (-interleave
+                               (mapcar (lambda (x) (nth 1 (assoc "fileName" x))) c)
+                               (mapcar (lambda (x) (nth 1 (assoc "lineNumber" x))) c)
+                               (mapcar (lambda (x) (nth 1 (assoc "methodName" x))) c)))
+                (lambda (x) (writeStringToBuffer proc (format " %s\n" (javadebugger-LocationString x))))))))
+
+;; fields
+(add-hook 'javadebugger-fields-hook
+          (lambda (className fields)
+            (writeOrgTableToBuffer
+             proxyProcess
+             threadTableTitle
+             "|Class|Name|Type|Declaring Type|Enum|Transient|Volatile|Final|Static|\n"
+             (list className fields))))
 
 ;; internalException
 (add-hook 'javadebugger-internalException-hook
@@ -324,8 +418,26 @@ the proxy to signal that it has started.
 ;; locals
 ;;(add-hook 'javadebugger-locals-hook (lambda ()
 
+;; modification watchpoint
+(add-hook
+ 'javadebugger-modificationWatchpoint-hook
+ (lambda (past future)
+   (writeStringToBuffer proxyProcess (concat "Modification watchpoint\nCurrent value\n"))
+   (writeOrgTableToBuffer
+    proxyProcess
+    "| Object:Field | Value "
+    orgTableSeperator
+    past)
+   (writeStringToBuffer proxyProcess (concat "New value\n"))
+   (writeOrgTableToBuffer
+    proxyProcess
+    "| Object:Field | Value "
+    orgTableSeperator
+    future)))
+
 ;; proxyExited
-;;(add-hook 'javadebugger-proxyExited-hook (lambda ()
+(add-hook 'javadebugger-proxyExited-hook (lambda ()
+            (writeStringToBuffer proxyProcess "Debugger proxy exited\n")))
 
 ;; proxyStarted
 (add-hook 'javadebugger-proxyStarted-hook (lambda ()
@@ -450,7 +562,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   (format "attach,%s,%s\n" (nth 1 c) (nth 2 c))))
-                               (list javadebugger-vmCreated-response javadebugger-error-response javadebugger-internalException-response))
+                               (list javadebugger-vmCreated-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "back"
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
                                "back [thread-id]"
@@ -460,7 +572,7 @@ Support commands are kept in a hash table
                                   (format
                                    "back,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c)))))
-                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response))
+                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "break"
                                (lambda (c) (/= (length c) 3))
                                "break class-name <line-number|method name>"
@@ -468,7 +580,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   (format "break,%s,%s\n" (nth 1 c) (nth 2 c))))
-                               (list javadebugger-breakpointCreated-response javadebugger-error-response javadebugger-internalException-response))
+                               (list javadebugger-breakpointCreated-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "breaks"
                                (lambda (c) (/= (length c) 1))
                                "breaks"
@@ -476,7 +588,25 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   "breaks\n"))
-                              (list javadebugger-breakpointList-response javadebugger-error-response javadebugger-internalException-response))
+                              (list javadebugger-breakpointList-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
+   (javadebug-makeCommandHashEntry "catch"
+                               (lambda (c) (or (/= (length c) 2)  (and (not (string-match "on" (nth 1 c))) (not (string-match "off" (nth 1 c))))))
+                               "catch on|off"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "catch,%s\n"
+                                   (nth 1 c))))
+                               (list javadebugger-catchEnabled-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
+   (javadebug-makeCommandHashEntry "classes"
+                               (lambda (c) (/= (length c) 1))
+                               "classes"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  "classes\n"))
+                               (list javadebugger-classes-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "clear"
                                (lambda (c) (or (/= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c)))))
                                "clear [breakpoint-id]"
@@ -486,7 +616,7 @@ Support commands are kept in a hash table
                                   (format
                                    "clear,%s\n"
                                    (nth 1 c))))
-                               (list  javadebugger-breakpointCleared-response javadebugger-error-response javadebugger-internalException-response))
+                               (list  javadebugger-breakpointCleared-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "continue"
                                (lambda (c) (/= (length c) 1))
                                "continue"
@@ -494,7 +624,15 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   "continue\n"))
-                               (list javadebugger-vmResumed-response javadebugger-error-response javadebugger-internalException-response))
+                               (list javadebugger-vmResumed-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
+   (javadebug-makeCommandHashEntry "fields"
+                               (lambda (c) (/= (length c) 2))
+                               "fields"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format "fields,%s\n", (nth 1 c))))
+                               (list  javadebugger-fields-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "frame"
                                (lambda (c) (not (or (= (length c) 1)
                                                     (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
@@ -527,7 +665,7 @@ Support commands are kept in a hash table
                                   (format
                                    "into,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c)))))
-                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response))
+                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "load"
                                (lambda (c) (/= (length c) 1))
                                "load"
@@ -535,7 +673,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   "run\n"))
-                               (list  javadebugger-classPrepared-response javadebugger-error-response javadebugger-internalException-response))
+                               (list  javadebugger-classPrepared-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "locals"
                                (lambda (c) (not (or (= (length c) 1)
                                                     (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
@@ -558,7 +696,7 @@ Support commands are kept in a hash table
                                   (format
                                    "next,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c)))))
-                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response))
+                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "prepare"
                                (lambda (c) (/= (length c) 2))
                                "prepare [class name]"
@@ -566,7 +704,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   (format "prepare,%s\n" (nth 1 c))))
-                               (list javadebugger-classPrepared-response javadebugger-error-response javadebugger-internalException-response))
+                               (list javadebugger-classPrepared-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "quit"
                                (lambda (c) (/= (length c) 1))
                                "quit"
@@ -582,7 +720,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   "run\n"))
-                               (list javadebugger-vmResumed-response javadebugger-error-response javadebugger-internalException-response))
+                               (list javadebugger-vmResumed-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "stack"
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c))))))
                                "stack [thread-id]"
@@ -592,7 +730,7 @@ Support commands are kept in a hash table
                                   (format
                                    "stack,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c)))))
-                               (list javadebugger-stack-response javadebugger-error-response javadebugger-internalException-response))
+                               (list javadebugger-stack-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "this"
                                (lambda (c) (not (or (= (length c) 1)
                                                     (and (= (length c) 2)  (string-match "[0-9]+" (nth 1 c)))
@@ -605,7 +743,7 @@ Support commands are kept in a hash table
                                    "this,%s,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c))
                                    (if (< (length c) 3) "0" (nth 2 c)))))
-                               (list  javadebugger-this-response javadebugger-error-response javadebugger-internalException-response))
+                               (list  javadebugger-this-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "threads"
                                    (lambda (c) (/= (length c) 1))
                                    "threads"
@@ -613,7 +751,7 @@ Support commands are kept in a hash table
                                      (process-send-string
                                       proxy
                                       "threads\n"))
-                               (list javadebugger-threadList-response javadebugger-error-response javadebugger-internalException-response)))))
+                               (list javadebugger-threadList-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))))
 #+END_SRC
 
 **** Describing a Command About to be Executed
@@ -1161,6 +1299,6 @@ we can get this, maybe not.
 
     (goto-char (point-max))
     (set-marker (process-mark proxyProcess) (point))
-    (insert (format "attach %s %s;prepare %s;load;break %s main;continue" host port mn mn))
+    (insert (format "attach %s %s;prepare %s;load;break %s main;catch on;continue" host port mn mn))
     (javadebug-newline))
 #+END_SRC

@@ -6,6 +6,7 @@ import com.sun.jdi.StringReference;
 import com.sun.jdi.VirtualMachine;
 import com.sun.jdi.VMDisconnectedException;
 
+import com.sun.jdi.event.AccessWatchpointEvent;
 import com.sun.jdi.event.BreakpointEvent;
 import com.sun.jdi.event.ClassPrepareEvent;
 import com.sun.jdi.event.ClassUnloadEvent;
@@ -14,6 +15,7 @@ import com.sun.jdi.event.EventIterator;
 import com.sun.jdi.event.ExceptionEvent;
 import com.sun.jdi.event.MethodEntryEvent;
 import com.sun.jdi.event.MethodExitEvent;
+import com.sun.jdi.event.ModificationWatchpointEvent;
 import com.sun.jdi.event.StepEvent;
 import com.sun.jdi.event.ThreadDeathEvent;
 import com.sun.jdi.event.ThreadStartEvent;
@@ -50,7 +52,10 @@ class EventReader extends Thread
 
                         Event event = (Event) it.next();
 
-                        if (event instanceof BreakpointEvent) {
+                        if (event instanceof AccessWatchpointEvent) {
+                            AccessWatchpointEvent ae = (AccessWatchpointEvent) event;
+                            debuggerOutput.output_accessWatchpoint(ae.object(), ae.field(), ae.valueCurrent(), ae.thread());
+                        } else if (event instanceof BreakpointEvent) {
                             BreakpointEvent bp = (BreakpointEvent) event;
                             debuggerOutput.output_breakpointEntered(((Integer) bp.request().getProperty(JavaDebuggerProxy.NumberProperty)).intValue(),
                                                                  bp.thread(),
@@ -84,18 +89,14 @@ class EventReader extends Thread
                         } else if (event instanceof ClassUnloadEvent) {
                             debuggerOutput.output_classUnloaded(((ClassUnloadEvent) event).className());
                         } else if (event instanceof ExceptionEvent)   {
-                            ExceptionEvent   e                = (ExceptionEvent) event;
-                            ObjectReference re              = e.exception();
-                            Field                        msgField = re.referenceType().fieldByName("detailMessage");
-                            StringReference msgVal     = (StringReference) re.getValue(msgField);
-
-                            debuggerOutput.output_exception(re.type().name(),
-                                                            e.catchLocation(),
-                                                            (msgVal == null ? "" : msgVal.value()));
+                            debuggerOutput.output_exception((ExceptionEvent) event);
                         } else if (event instanceof MethodEntryEvent) {
                             ;
                         } else if (event instanceof MethodExitEvent) {
                             ;
+                        } else if (event instanceof ModificationWatchpointEvent) {
+                            ModificationWatchpointEvent me = (ModificationWatchpointEvent) event;
+                            debuggerOutput.output_modificationWatchpoint(me.object(), me.field(), me.valueCurrent(), me.valueToBe(), me.thread());
                         } else if (event instanceof StepEvent) {
                             StepEvent se = (StepEvent) event;
                             debuggerOutput.output_step(se.thread(), se.location());
