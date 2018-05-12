@@ -1,4 +1,4 @@
-* Java Debugger
+ Java Debugger
 
 ** javadebug mode
 
@@ -73,13 +73,25 @@ the proxy to signal that it has started.
 
 (setq javadebug-response-hooks (ht-create))
 
-;; breakpointCleared
+;; accesswatchpoint
 (defconst javadebugger-accessWatchpoint-response "accesswatchpoint" "")
 (defvar javadebugger-accessWatchpoint-hook nil)
 (setq javadebugger-accessWatchpoint-hook ())
 (ht-set javadebug-response-hooks
-   javadebugger-accessWatchpoint-response
-   (lambda (response) (run-hook-with-args 'javadebugger-accessWatchpoint-hook (nth1 response))))
+        javadebugger-accessWatchpoint-response
+        (lambda (response)
+          (run-hook-with-args 'javadebugger-accessWatchpoint-hook
+                              (nth 1 response)
+                              (nth 2 response)
+                              (nth 0 (read-from-string (nth 3 response))))))
+
+;; accessWatchpointSet
+(defconst javadebugger-accessWatchpointSet-response "accesswatchpointset" "")
+(defvar javadebugger-accessWatchpointSet-hook nil)
+(setq javadebugger-accessWatchpointSet-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-accessWatchpointSet-response
+   (lambda (response) (run-hooks 'javadebugger-accessWatchpointSet-hook )))
 
 (defconst javadebugger-breakpointCleared-response "breakpointcleared" "")
 (defvar javadebugger-breakpointCleared-hook nil)
@@ -173,7 +185,7 @@ the proxy to signal that it has started.
 (setq javadebugger-fields-hook ())
 (ht-set javadebug-response-hooks
    javadebugger-fields-response
-   (lambda (response) (run-hook-with-args 'javadebugger-classes-hook  (nth 1 response) (-partition-in-steps 8 8 (-slice response 2)))))
+   (lambda (response) (run-hook-with-args 'javadebugger-fields-hook  (nth 1 response) (-partition-in-steps 8 8 (-slice response 2)))))
 
 ;; internalException
 (defconst javadebugger-internalException-response "internalexception" "")
@@ -205,7 +217,28 @@ the proxy to signal that it has started.
 (setq javadebugger-modificationWatchpoint-hook ())
 (ht-set javadebug-response-hooks
    javadebugger-modificationWatchpoint-response
-   (lambda (response) (run-hook-with-args 'javadebugger-modificationWatchpoint-hook (nth1 response) (nth2 response))))
+   (lambda (response)
+     (run-hook-with-args 'javadebugger-modificationWatchpoint-hook
+                         (nth 1 response)
+                         (nth 2 response)
+                         (nth 0 (read-from-string (nth 3 response)))
+                         (nth 0 (read-from-string (nth 4 response))))))
+
+;; modificationWatchpointSet
+(defconst javadebugger-modificationWatchpointSet-response "modificationwatchpointset" "")
+(defvar javadebugger-modificationWatchpointSet-hook nil)
+(setq javadebugger-modificationWatchpointSet-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-modificationWatchpointSet-response
+   (lambda (response) (run-hooks 'javadebugger-modificationWatchpointSet-hook )))
+
+;; preparing class
+(defconst javadebugger-preparingClass-response "preparingclass" "")
+(defvar javadebugger-preparingClass-hook nil)
+(setq javadebugger-preparingClass-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-preparingClass-response
+   (lambda (response) (run-hook-with-args 'javadebugger-preparingClass-hook  (nth 1 response))))
 
 ;; proxyExited
 (defconst javadebugger-proxyExited-response "proxyexited" "")
@@ -326,13 +359,17 @@ the proxy to signal that it has started.
 
 ;; accessWatchpoint
 (add-hook 'javadebugger-accessWatchpoint-hook
-          (lambda ( Field)
-            (writeStringToBuffer proxyProcess (concat "Access watchpoint\n"))
+          (lambda (className fieldName value)
+            (writeStringToBuffer proxyProcess  "Access watchpoint\n")
             (writeOrgTableToBuffer
              proxyProcess
-             "| Object:Field | Value "
+             "|Class:Field|Value|\n"
              orgTableSeperator
-             th)))
+             (list (concat className ":" fieldName) value))))
+
+;; accessWatchpointSet
+(add-hook 'javadebugger-accessWatchpointSet-hook (lambda ()
+            (writeStringToBuffer proc (concat "Access watchpoint set.\n"))))
 
 ;; breakpointCreated
 (add-hook 'javadebugger-breakpointCreated-hook
@@ -403,7 +440,6 @@ the proxy to signal that it has started.
           (lambda (className fields)
             (writeOrgTableToBuffer
              proxyProcess
-             threadTableTitle
              "|Class|Name|Type|Declaring Type|Enum|Transient|Volatile|Final|Static|\n"
              (list className fields))))
 
@@ -421,19 +457,21 @@ the proxy to signal that it has started.
 ;; modification watchpoint
 (add-hook
  'javadebugger-modificationWatchpoint-hook
- (lambda (past future)
-   (writeStringToBuffer proxyProcess (concat "Modification watchpoint\nCurrent value\n"))
+ (lambda (className fieldName past future)
+   (writeStringToBuffer proxyProcess "Modification watchpoint\n")
    (writeOrgTableToBuffer
     proxyProcess
-    "| Object:Field | Value "
+    "| Object:Field | When | Value |\n"
     orgTableSeperator
-    past)
-   (writeStringToBuffer proxyProcess (concat "New value\n"))
-   (writeOrgTableToBuffer
-    proxyProcess
-    "| Object:Field | Value "
-    orgTableSeperator
-    future)))
+    (list (concat className ":" fieldName) (list "Before" past) (list "After" future)))))
+
+;; modificationWatchpointSet
+(add-hook 'javadebugger-modificationWatchpointSet-hook (lambda ()
+            (writeStringToBuffer proc (concat "Modification watchpoint set.\n"))))
+
+;; preparing class
+(add-hook 'javadebugger-preparingClass-hook (lambda (name)
+            (writeStringToBuffer proc (concat "Preparing class " name ".\n"))))
 
 ;; proxyExited
 (add-hook 'javadebugger-proxyExited-hook (lambda ()
@@ -542,6 +580,17 @@ Support commands are kept in a hash table
         x)
        h))
   (list
+   (javadebug-makeCommandHashEntry "access"
+                               (lambda (c) (/= (length c) 3))
+                               "access class-name field-name"
+                                (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "access,%s,%s\n"
+                                   (nth 1 c)
+                                   (nth 2 c))))
+                               (list javadebugger-accessWatchpointSet-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "arguments"
                                (lambda (c) (not (or (= (length c) 1)
                                                     (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
@@ -562,7 +611,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   (format "attach,%s,%s\n" (nth 1 c) (nth 2 c))))
-                               (list javadebugger-vmCreated-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
+                               (list javadebugger-vmStarted-response  javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "back"
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
                                "back [thread-id]"
@@ -631,7 +680,7 @@ Support commands are kept in a hash table
                                (lambda (proxy c)
                                  (process-send-string
                                   proxy
-                                  (format "fields,%s\n", (nth 1 c))))
+                                  (format "fields,%s\n" (nth 1 c))))
                                (list  javadebugger-fields-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "frame"
                                (lambda (c) (not (or (= (length c) 1)
@@ -697,6 +746,17 @@ Support commands are kept in a hash table
                                    "next,%s\n"
                                    (if (= (length c) 1) defaultThread (nth 1 c)))))
                                (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
+   (javadebug-makeCommandHashEntry "modify"
+                               (lambda (c) (/= (length c) 3))
+                               "modify class-name field-name"
+                                (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                  "modify,%s,%s\n"
+                                   (nth 1 c)
+                                   (nth 2 c))))
+                               (list javadebugger-modificationWatchpointSet-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "prepare"
                                (lambda (c) (/= (length c) 2))
                                "prepare [class name]"
@@ -704,7 +764,7 @@ Support commands are kept in a hash table
                                  (process-send-string
                                   proxy
                                   (format "prepare,%s\n" (nth 1 c))))
-                               (list javadebugger-classPrepared-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
+                               (list javadebugger-preparingClass-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
    (javadebug-makeCommandHashEntry "quit"
                                (lambda (c) (/= (length c) 1))
                                "quit"
@@ -924,17 +984,6 @@ If a command finishes the proxy is ready so run, if available, the next command.
 
 *** Handle Responses Received From  the Proxy
 
-Individual commands are handled by functions hung on this hook. The standard
-function named javadebug-proxy-string-received. See below.
-
-#+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defcustom javadebug-mode-functions 'javadebug-proxy-string-received
-  "Abnormal hook run on reception of a string from the proxy."
-  :type 'hook
-  :options '(javadebug-proxy-string-received)
-  :group 'javadebugger)
-#+END_SRC
-
 **** Read a Response
 
 The proxy sends data to this elisp program through stdout. That data is
@@ -962,9 +1011,6 @@ manifested to this program when the following routine runs without warning.
                   (javadebug-checkForCompletedCommand (car response)))))))))
 
 
-;;                (run-hook-with-args 'javadebug-mode-functions proc (car args) (cdr args))
-
-
 ;; make the output buffer right
 (defun javadebug-fix-output-buffer (proc)
   (when (and (buffer-live-p (process-buffer proc))
@@ -974,101 +1020,6 @@ manifested to this program when the following routine runs without warning.
     (insert "\n")))
 
 #+END_SRC
-
-And through the magic of hooks, the comma seperated line from the proxy appears
-here, probably, as a list of strings.
-
-#+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defun javadebug-proxy-string-received (proc act args)
-  (message "javadebug-proxy-string-received act %s args %s runningCommand %s commandsToRun %s" act args runningCommand commandsToRun)
-  (cond
-   ((string= act "arguments")
-    (if
-        (or
-         (string= (getKeyFromCommandDescription runningCommand) "arguments")
-         (string= (getKeyFromCommandDescription runningCommand) "frame"))
-        (writeOrgTableToBuffer
-         proc
-         argumentsTableTitle
-         orgTableSeperator
-         (if (and args (car args))  (nth 0 (read-from-string (car args)))))))
-   ((string= act "breakpoint")
-    (let ((second (car args)))
-      (cond
-       ((string= second "cleared")
-        (writeStringToBuffer proc (concat "breakpoint number " (nth 1 args) "cleared.\n")))
-       ((string= second "created")
-        (writeStringToBuffer proc (concat "breakpoint number " (nth 1 args) " created.\n")))
-       ((string= second "entered")
-        (reportBreak
-         (concat "breakpoint number " (nth 1) " entered ")
-         (cdr (member "thread" args))
-         (cdr (member "location" args))))
-       ((string= second "listed")
-        (dolist (v (-split-on "breakpoint" args))
-          (writeStringToBuffer proc (concat (s-join " " v) "\n")))))))
-   ((string= act "class")
-    (let ((second (car args)))
-      (cond
-       ((string= second "prepared")      (writeStringToBuffer proc (concat "class " (nth 1 args) " loaded.\n")))
-       ((string= second "unloaded") (writeStringToBuffer proc (concat "class " (nth 1 args) " unloaded.\n"))))))
-   ((string= act "error")
-    (writeStringToBuffer proc (concat act " "  (s-join  " " args) "\n")))
-   ((string= act "exception")
-    (writeStringToBuffer proc (concat "Exception received in proxy: " (car args))))
-   ((string= act "frame"))
-   ((string= act "locals")
-    (if
-        (or
-         (string= (getKeyFromCommandDescription runningCommand)  "locals")
-         (string= (getKeyFromCommandDescription runningCommand) "frame"))
-        (writeOrgTableToBuffer
-         proc
-         localTableTitle
-         orgTableSeperator
-         (if (and args (car args))  (nth 0 (read-from-string (car args)))))))
-   ((string= act "proxy")
-    (let ((second (car args)))
-      (cond
-       ((string= second "exit")
-        (delete-process proc)
-        (writeStringToBuffer proc "Debugger proxy exited\n"))
-       ((string= second "started")
-        (writeStringToBuffer proc "Debugger proxy started\n")))))
-   ((string= act "stack")
-    (writeStringToBuffer proc (concat "thread " (car args) "\n"))
-    (dolist (v (-split-on "location" (cdr args)))
-      (writeStringToBuffer proc (format "%s:%s %s\n" (nth 0 v) (nth 1 v) (nth 2 v)))))
-   ((string= act "step")
-    (reportBreak "step"   (cdr (member "thread" args)) (cdr (member "location" args))))
-   ((string= act "this")
-    (writeOrgTableToBuffer
-     proc
-     thisTableTitle
-     orgTableSeperator
-     (if (and args (car args))  (nth 0 (read-from-string (car args))))))
-   ((string= act "threads")
-    (writeOrgTableToBuffer
-         proc
-         threadTableTitle
-         orgTableSeperator
-        (-split-on "thread" args)))
-   ((string= act "vm")
-    (let ((second (car args)))
-      (cond
-       ((string= second "created")
-        (writeStringToBuffer proc "virtual machine created\n"))
-       ((string= second "died")
-        (writeStringToBuffer proc "virtual machine terminated\n"))
-       ((string= second "disconnected")
-        (writeStringToBuffer proc "virtual machine disconnected\n"))
-       ((string= second "resuming")
-        (writeStringToBuffer proc "virtual machine resuming operation.\n"))
-       ((string= second "started")
-        (writeStringToBuffer proc "virtual machine started\n")))))
-   (t (writeStringToBuffer proc (format "error - unknown response %s arguments %s \n" act (if args args "null"))))))
-#+END_SRC
-
 
 ** Input
 
@@ -1287,7 +1238,6 @@ we can get this, maybe not.
       ".\n\tPort: "  port ".\n\n"));
     (delete-other-windows)
     (javadebug-mode)
-    (add-hook 'javadebug-mode-functions 'javadebug-proxy-string-received)
 
     ;; set up the command history
 

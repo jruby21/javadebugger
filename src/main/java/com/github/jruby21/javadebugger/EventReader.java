@@ -61,7 +61,7 @@ class EventReader extends Thread
                                                                  bp.thread(),
                                                                  bp.location());
                         } else if (event instanceof ClassPrepareEvent) {
-
+                                debuggerOutput.output_classPrepared(((ClassPrepareEvent) event).referenceType().name());
                             // In rare cases, this event may occur in a debugger
                             // system thread within the target VM. Debugger
                             // threads take precautions to prevent these events,

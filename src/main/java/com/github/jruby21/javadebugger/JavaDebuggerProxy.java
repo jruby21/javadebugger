@@ -6,6 +6,8 @@ package com.github.jruby21.javadebugger;
 
 import com.sun.jdi.AbsentInformationException;
 import com.sun.jdi.Bootstrap;
+import com.sun.jdi.ClassNotPreparedException;
+import com.sun.jdi.Field;
 import com.sun.jdi.IncompatibleThreadStateException;
 import com.sun.jdi.InvalidStackFrameException;
 import com.sun.jdi.Location;
@@ -19,9 +21,12 @@ import com.sun.jdi.connect.AttachingConnector;
 import com.sun.jdi.connect.Connector;
 import com.sun.jdi.connect.IllegalConnectorArgumentsException;
 
+import com.sun.jdi.request.AccessWatchpointRequest;
 import com.sun.jdi.request.BreakpointRequest;
 import com.sun.jdi.request.ClassPrepareRequest;
+import com.sun.jdi.request.EventRequest;
 import com.sun.jdi.request.ExceptionRequest;
+import com.sun.jdi.request.ModificationWatchpointRequest;
 import com.sun.jdi.request.StepRequest;
 
 import java.io.BufferedReader;
@@ -38,14 +43,12 @@ import java.util.Map;
 public class JavaDebuggerProxy
 {
     public static final String NumberProperty = "breakpointNumber";
-
     private VirtualMachine vm           = null;
-    private EventReader     er             = null;
-    private int                         bpcount = 0;
 
+    private int                         bpcount = 0;
     private DebuggerOutput debuggerOutput = new DebuggerOutput(System.out);
 
-    private enum TOKEN { ATTACH, BACK, BREAK, BREAKS, CATCH, CLASSES, CLEAR, CONTINUE, DONE, FIELDS, FRAME, INTO, LOCALS, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
+    private enum TOKEN { ACCESS, ATTACH, BACK, BREAK, BREAKS, CATCH, CLASSES, CLEAR, CONTINUE, DONE, FIELDS, FRAME, INTO, LOCALS, MODIFY, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
 
     public static void main(String args[]) throws Exception    {
 
@@ -57,24 +60,26 @@ public class JavaDebuggerProxy
 
         HashMap<String, CommandDescription> keywords = new HashMap<String, CommandDescription>();
 
-        keywords.put("attach",    new CommandDescription(TOKEN.ATTACH, 3, "attach hostname port"));
-        keywords.put("back",       new CommandDescription(TOKEN.BACK, 2, "back thread-id"));
-        keywords.put("break",     new CommandDescription(TOKEN.BREAK, 3, "break class-name <line-number|method name>"));
-        keywords.put("breaks",    new CommandDescription(TOKEN.BREAKS, 1, "breaks"));
-        keywords.put("classes",   new CommandDescription(TOKEN.CLASSES, 1, "classes"));
-        keywords.put("clear",       new CommandDescription(TOKEN.CLEAR, 2, "clear breakpoint-number"));
-        keywords.put("catch",      new CommandDescription(TOKEN.CATCH, 2, "catch on|off"));
+        keywords.put("access",    new CommandDescription(TOKEN.ACCESS, 3, "access  classname fieldname"));
+        keywords.put("attach",     new CommandDescription(TOKEN.ATTACH, 3, "attach hostname port"));
+        keywords.put("back",        new CommandDescription(TOKEN.BACK, 2, "back thread-id"));
+        keywords.put("break",      new CommandDescription(TOKEN.BREAK, 3, "break class-name <line-number|method name>"));
+        keywords.put("breaks",     new CommandDescription(TOKEN.BREAKS, 1, "breaks"));
+        keywords.put("classes",    new CommandDescription(TOKEN.CLASSES, 1, "classes"));
+        keywords.put("clear",        new CommandDescription(TOKEN.CLEAR, 2, "clear breakpoint-number"));
+        keywords.put("catch",       new CommandDescription(TOKEN.CATCH, 2, "catch on|off"));
         keywords.put("continue", new CommandDescription(TOKEN.CONTINUE, 1, "continue"));
-        keywords.put("fields",      new CommandDescription(TOKEN.FIELDS, 2, "fields class-name"));
-        keywords.put("frame",     new CommandDescription(TOKEN.FRAME, 3, "frame thread-id frame-id"));
-        keywords.put("into",         new CommandDescription(TOKEN.INTO, 2, "back thread-id"));
-        keywords.put("next",        new CommandDescription(TOKEN.NEXT, 2, "back thread-id"));
+        keywords.put("fields",       new CommandDescription(TOKEN.FIELDS, 2, "fields class-name"));
+        keywords.put("frame",      new CommandDescription(TOKEN.FRAME, 3, "frame thread-id frame-id"));
+        keywords.put("into",          new CommandDescription(TOKEN.INTO, 2, "back thread-id"));
+        keywords.put("modify",    new CommandDescription(TOKEN.MODIFY, 3, "modify  classname fieldname"));
+        keywords.put("next",         new CommandDescription(TOKEN.NEXT, 2, "back thread-id"));
         keywords.put("prepare",  new CommandDescription(TOKEN.PREPARE, 2, "prepare main-class"));
         keywords.put("quit",         new CommandDescription(TOKEN.QUIT, 1, "quit"));
-        keywords.put("run",         new CommandDescription(TOKEN.RUN, 1, "run"));
-        keywords.put("stack",      new CommandDescription(TOKEN.STACK, 2, "stack thread-id"));
-        keywords.put("this",         new CommandDescription(TOKEN.THIS, 3, "this thread-id frame-id"));
-        keywords.put("threads",  new CommandDescription(TOKEN.THREAD, 1, "threads"));
+        keywords.put("run",          new CommandDescription(TOKEN.RUN, 1, "run"));
+        keywords.put("stack",       new CommandDescription(TOKEN.STACK, 2, "stack thread-id"));
+        keywords.put("this",          new CommandDescription(TOKEN.THIS, 3, "this thread-id frame-id"));
+        keywords.put("threads",   new CommandDescription(TOKEN.THREAD, 1, "threads"));
 
         debuggerOutput.output_proxyStarted( );
 
@@ -145,6 +150,36 @@ public class JavaDebuggerProxy
         try {
 
             switch (command.token)   {
+
+            case ACCESS:
+
+                try {
+                    Field                                             f = getField(tokens [1], tokens [2]);
+                    AccessWatchpointRequest  w = null;
+
+                    for (AccessWatchpointRequest a :  vm.eventRequestManager().accessWatchpointRequests()) {
+
+                        if (a.field().equals(f)) {
+
+                                w = a;
+                            }
+                    }
+
+                    if (w == null) {
+
+                        w = vm.eventRequestManager().createAccessWatchpointRequest(f);
+                    }
+
+                    w.setEnabled(true);
+                    debuggerOutput.output_accessWatchpointSet();
+
+                } catch (ClassNotPreparedException c) {
+                    debuggerOutput.output_error("Class " + tokens [1] + " not prepared.");
+                } catch (UnsupportedOperationException e) {
+                    debuggerOutput.output_error("Virtual machine does not support access watchpoints.");
+                }
+
+                break;
 
             case ATTACH:
 
@@ -331,6 +366,36 @@ public class JavaDebuggerProxy
 
                 break;
 
+            case MODIFY:
+
+                try {
+                    Field                                                        f = getField(tokens [1], tokens [2]);
+                    ModificationWatchpointRequest  w = null;
+
+                    for (ModificationWatchpointRequest m :  vm.eventRequestManager().modificationWatchpointRequests()) {
+
+                        if (f.equals(m.field())) {
+
+                         w = m;
+                          }
+                    }
+
+                    if (w == null) {
+
+                        w = vm.eventRequestManager().createModificationWatchpointRequest(f);
+                    }
+
+                    w.setEnabled(true);
+                    debuggerOutput.output_modificationWatchpointSet();
+
+                } catch (ClassNotPreparedException c) {
+                    debuggerOutput.output_error("Class " + tokens [1] + " not prepared.");
+                } catch (UnsupportedOperationException e) {
+                    debuggerOutput.output_error("Virtual machine does not support modification watchpoints.");
+                }
+
+                break;
+
             case NEXT:
 
                 step(tokens [1],
@@ -342,9 +407,11 @@ public class JavaDebuggerProxy
             case PREPARE:
 
                 ClassPrepareRequest r = vm.eventRequestManager().createClassPrepareRequest();
+                r.disable();
                 r.addClassFilter(tokens [1]);
+                r.setSuspendPolicy(EventRequest.SUSPEND_ALL);
                 r.enable();
-                debuggerOutput.output_classPrepared(tokens [1]);
+                debuggerOutput.output_preparingClass (tokens [1]);
                 break;
 
             case QUIT:
@@ -356,8 +423,8 @@ public class JavaDebuggerProxy
             case CONTINUE:
             case RUN:
 
-                vm.resume();
                 debuggerOutput.output_vmResumed ( );
+                vm.resume();
                 break;
 
 
@@ -507,6 +574,23 @@ public class JavaDebuggerProxy
 
         throw new IllegalArgumentException("no thread with id " + id);
     }
+
+    private Field getField(String className, String fieldName)
+        throws ClassNotPreparedException
+    {
+        for (ReferenceType r :  vm.classesByName(className)) {
+
+            Field f  = r.fieldByName(fieldName);
+
+            if (f != null) {
+
+                return f;
+            }
+        }
+
+        return null;
+    }
+
 
     class CommandDescription    {
         public TOKEN  token;
