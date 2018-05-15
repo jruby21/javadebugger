@@ -110,7 +110,6 @@ public class JavaDebuggerProxy
 
     void expr(String [] tokens, CommandDescription command, PrintStream out)   {
 
-        DebuggerThread  tr   = null;
         ThreadReference trr  = null;
         StackFrame            sf    = null;
 
@@ -180,6 +179,25 @@ public class JavaDebuggerProxy
                 }
 
                 break;
+
+
+            case ARGUMENTS:
+
+                trr = trr.getThreadReference(tokens [1])
+                sf  = trr.frame(Integer.parseInt(tokens [2]));
+                debuggerOutput.output_arguments();
+
+                for (LocalVariable lv : sf.visibleVariables()) {
+
+                    if (lv.isArgument()) {
+
+                        debuggerOutput.output_variable(lv.name(), sf.getValue(lv), trr);
+                    }
+                }
+
+                debuggerOutput.output_endargument();
+                break;
+
 
             case ATTACH:
 
