@@ -1,5 +1,5 @@
 // /home/jruby/tools/jdk1.8.0_131/bin/java -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" debugger
-// /home/jruby/tools/jdk1.8.0_131/bin/java -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" -agentlib:jdwp=transport=dt_socket,address=localhost:8000,server=y,suspend=y foo
+// /home/jruby/tools/jdk1.8.0_131/bin/java -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" -agentlib:jdwp=transport=dt_socket,address=localhost:8000,server=y,suspend=y test.foo 3 4
 // /home/jruby/tools/jdk1.8.0_131/bin/javac -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" debugger.java
 
 package com.github.jruby21.javadebugger;
@@ -10,6 +10,7 @@ import com.sun.jdi.ClassNotPreparedException;
 import com.sun.jdi.Field;
 import com.sun.jdi.IncompatibleThreadStateException;
 import com.sun.jdi.InvalidStackFrameException;
+import com.sun.jdi.LocalVariable;
 import com.sun.jdi.Location;
 import com.sun.jdi.Method;
 import com.sun.jdi.ReferenceType;
@@ -48,7 +49,7 @@ public class JavaDebuggerProxy
     private int                         bpcount = 0;
     private DebuggerOutput debuggerOutput = new DebuggerOutput(System.out);
 
-    private enum TOKEN { ACCESS, ATTACH, BACK, BREAK, BREAKS, CATCH, CLASSES, CLEAR, CONTINUE, DONE, FIELDS, FRAME, INTO, LOCALS, MODIFY, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
+    private enum TOKEN { ACCESS, ARGUMENTS, ATTACH, BACK, BREAK, BREAKS, CATCH, CLASSES, CLEAR, DONE, FIELDS, FRAME, INTO, LOCALS, MODIFY, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
 
     public static void main(String args[]) throws Exception    {
 
@@ -61,6 +62,7 @@ public class JavaDebuggerProxy
         HashMap<String, CommandDescription> keywords = new HashMap<String, CommandDescription>();
 
         keywords.put("access",    new CommandDescription(TOKEN.ACCESS, 3, "access  classname fieldname"));
+        keywords.put("arguments",  new CommandDescription(TOKEN.ARGUMENTS, 4, "arguments  thread-id frame-id"));
         keywords.put("attach",     new CommandDescription(TOKEN.ATTACH, 3, "attach hostname port"));
         keywords.put("back",        new CommandDescription(TOKEN.BACK, 2, "back thread-id"));
         keywords.put("break",      new CommandDescription(TOKEN.BREAK, 3, "break class-name <line-number|method name>"));
@@ -68,7 +70,6 @@ public class JavaDebuggerProxy
         keywords.put("classes",    new CommandDescription(TOKEN.CLASSES, 1, "classes"));
         keywords.put("clear",        new CommandDescription(TOKEN.CLEAR, 2, "clear breakpoint-number"));
         keywords.put("catch",       new CommandDescription(TOKEN.CATCH, 2, "catch on|off"));
-        keywords.put("continue", new CommandDescription(TOKEN.CONTINUE, 1, "continue"));
         keywords.put("fields",       new CommandDescription(TOKEN.FIELDS, 2, "fields class-name"));
         keywords.put("frame",      new CommandDescription(TOKEN.FRAME, 3, "frame thread-id frame-id"));
         keywords.put("into",          new CommandDescription(TOKEN.INTO, 2, "back thread-id"));
@@ -183,13 +184,13 @@ public class JavaDebuggerProxy
 
             case ARGUMENTS:
 
-                trr = trr.getThreadReference(tokens [1])
+                trr = getThreadReference(tokens [1]);
                 sf  = trr.frame(Integer.parseInt(tokens [2]));
                 debuggerOutput.output_arguments();
 
                 for (LocalVariable lv : sf.visibleVariables()) {
 
-                    if (lv.isArgument()) {
+                    if (lv.isArgument() && (tokens [3].equals("*") || tokens [3].equals(lv.name()))) {
 
                         debuggerOutput.output_variable(lv.name(), sf.getValue(lv), trr);
                     }
@@ -438,7 +439,6 @@ public class JavaDebuggerProxy
                 debuggerOutput.close();
                 System.exit(0);
 
-            case CONTINUE:
             case RUN:
 
                 debuggerOutput.output_vmResumed ( );

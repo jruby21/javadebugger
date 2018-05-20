@@ -1,4 +1,4 @@
- Java Debugger
+* Java Debugger
 
 ** javadebug mode
 
@@ -20,22 +20,20 @@
   "Major mode java debugger.")
 
 (defvar defaultThread "" "the last thread in which we had a breakpoint. use this thread if no thread number is specified in a command")
+(defvar defaultFrame  "" "the frame we examined")
 
 #+END_SRC
 
 ** The Proxy
 
+There is a JAVA prgram called the 'proxy' which connects to the target process
+and handles the JDI interface.  The proxy runs as a sub process to emacs. This
+elisp program sends commands to the proxy on stdin and receives replies on
+stdout.
+
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 (defvar proxyProcess () "the JAVA proxy program which connects to the program to be debugged")
-#+END_SRC
 
-*** Start the proxy
-
-The proxy runs as a sub process to emacs. The proxy connects to the target
-process and handles the JDI interface. This elisp program sends commands to the
-proxy on stdin and receives replies on stdout.
-
-#+BEGIN_SRC emacs-lisp :noweb-ref start-proxy
 (defcustom javadebugger-proxy
   "java -cp ~/javadebugger/src/main/java/com/github/jruby21/javadebugger/JavaDebuggerProxy:~/jdk1.8.0_131/lib/tools.jar com.github.jruby21.javadebugger.JavaDebuggerProxy"
   "full command to run javadebugger proxy"
@@ -43,14 +41,13 @@ proxy on stdin and receives replies on stdout.
   :group 'javadebugger)
 #+END_SRC
 
+*** Start the proxy
+
 Start the proxy and set the filter which handles strings received on stdin from
-the proxy.  There is a special command (proxy) that does nothing but wait for
-the proxy to signal that it has started.
+the proxy.  There is a special debugger command (proxy) that does nothing but
+wait for the proxy to signal that it has started.
 
 #+BEGIN_SRC emacs-lisp :noweb-ref start-proxy
-
-(setq proxyProcess (apply 'start-process "javadebuggerProxy"  (current-buffer) (split-string javadebugger-proxy)))
-(set-process-filter proxyProcess 'javadebug-insertion-filter)
 
 (setq commandsToRun ())
 
@@ -66,6 +63,9 @@ the proxy to signal that it has started.
         (lambda (c) "")
         (list javadebugger-proxyStarted-response))))
 
+(setq proxyProcess (apply 'start-process "javadebuggerProxy"  (current-buffer) (split-string javadebugger-proxy)))
+(set-process-filter proxyProcess 'javadebug-insertion-filter)
+
 #+END_SRC
 
 
@@ -73,484 +73,20 @@ the proxy to signal that it has started.
 
 (setq javadebug-response-hooks (ht-create))
 
-;; accesswatchpoint
-(defconst javadebugger-accessWatchpoint-response "accesswatchpoint" "")
-(defvar javadebugger-accessWatchpoint-hook nil)
-(setq javadebugger-accessWatchpoint-hook ())
-(ht-set javadebug-response-hooks
-        javadebugger-accessWatchpoint-response
-        (lambda (response)
-          (run-hook-with-args 'javadebugger-accessWatchpoint-hook
-                              (nth 1 response)
-                              (nth 2 response)
-                              (nth 0 (read-from-string (nth 3 response))))))
-
-;; accessWatchpointSet
-(defconst javadebugger-accessWatchpointSet-response "accesswatchpointset" "")
-(defvar javadebugger-accessWatchpointSet-hook nil)
-(setq javadebugger-accessWatchpointSet-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-accessWatchpointSet-response
-   (lambda (response) (run-hooks 'javadebugger-accessWatchpointSet-hook )))
-
-(defconst javadebugger-breakpointCleared-response "breakpointcleared" "")
-(defvar javadebugger-breakpointCleared-hook nil)
-(setq javadebugger-breakpointCleared-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-breakpointCleared-response
-   (lambda (response) (run-hook-with-args 'javadebugger-breakpointCleared-hook (nth 1 response))))
-
-;; breakpointCreated
-(defconst javadebugger-breakpointCreated-response "breakpointcreated" "")
-(defvar javadebugger-breakpointCreated-hook nil)
-(setq javadebugger-breakpointCreated-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-breakpointCreated-response
-   (lambda (response) (run-hook-with-args 'javadebugger-breakpointCreated-hook (nth 1 response) (-slice response 2 5))))
-
-;; breakpointEntered
-(defconst javadebugger-breakpointEntered-response "breakpointentered" "")
-(defvar javadebugger-breakpointEntered-hook nil)
-(setq javadebugger-breakpointEntered-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-breakpointEntered-response
-   (lambda (response) (run-hook-with-args 'javadebugger-breakpointEntered-hook (nth 1 response) (-slice response 2 8) (-slice response 8))))
-
-;; breakpointList
-(defconst javadebugger-breakpointList-response "breakpointlist" "")
-(defvar javadebugger-breakpointList-hook nil)
-(setq javadebugger-breakpointList-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-breakpointList-response
-   (lambda (response) (run-hook-with-args 'javadebugger-breakpointList-hook
-     (mapcar (lambda (x) (list (car x) (-slice x 1))) (-partition-in-steps 4 4 (-slice response  1))))))
-
-;; catchEnabled
-(defconst javadebugger-catchEnabled-response "catchenabled" "")
-(defvar javadebugger-catchEnabled-hook nil)
-(setq javadebugger-catchEnabled-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-catchEnabled-response
-   (lambda (response) (run-hook-with-args 'javadebugger-catchEnabled-hook (nth 1 response))))
-
-;; classes
-(defconst javadebugger-classes-response "classes" "")
-(defvar javadebugger-classes-hook nil)
-(setq javadebugger-classes-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-classes-response
-   (lambda (response) (run-hook-with-args 'javadebugger-classes-hook  (-slice response 1))))
-
-;; classPrepared
-(defconst javadebugger-classPrepared-response "classprepared" "")
-(defvar javadebugger-classPrepared-hook nil)
-(setq javadebugger-classPrepared-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-classPrepared-response
-   (lambda (response) (run-hook-with-args 'javadebugger-classPrepared-hook (nth 1 response))))
-
-;; classUnloaded
-(defconst javadebugger-classUnloaded-response "classunloaded" "")
-(defvar javadebugger-classUnloaded-hook nil)
-(setq javadebugger-classUnloaded-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-classUnloaded-response
-   (lambda (response) (run-hook-with-args 'javadebugger-classUnloaded-hook (nth 1 response))))
-
-;; error
-(defconst javadebugger-error-response "error" "")
-(defvar javadebugger-error-hook nil)
-(setq javadebugger-error-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-error-response
-   (lambda (response) (run-hook-with-args 'javadebugger-error-hook (nth 1 response))))
-
-;; exception
-(defconst javadebugger-exception-response "exception" "")
-(defvar javadebugger-exception-hook nil)
-(setq javadebugger-exception-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-exception-response
-   (lambda (response)
-     (run-hook-with-args
-      'javadebugger-exception-hook
-      (nth 1 response)
-      (-slice response 2 5)
-      (nth 5 response)
-      (nth 0 (read-from-string (nth 6 response))))))
-
-;; fields
-(defconst javadebugger-fields-response "fields" "")
-(defvar javadebugger-fields-hook nil)
-(setq javadebugger-fields-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-fields-response
-   (lambda (response) (run-hook-with-args 'javadebugger-fields-hook  (nth 1 response) (-partition-in-steps 8 8 (-slice response 2)))))
-
-;; internalException
-(defconst javadebugger-internalException-response "internalexception" "")
-(defvar javadebugger-internalException-hook nil)
-(setq javadebugger-internalException-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-internalException-response
-        (lambda (response) (run-hook-with-args 'javadebugger-internalException-hook (nth  1 response) (nth 2 response))))
-
-;; log
-(defconst javadebugger-log-response "log" "")
-(defvar javadebugger-log-hook nil)
-(setq javadebugger-log-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-log-response
-   (lambda (response) (run-hook-with-args 'javadebugger-log-hook (nth 1 response))))
-
-;; locals
-(defconst javadebugger-locals-response "locals" "")
-(defvar javadebugger-locals-hook nil)
-(setq javadebugger-locals-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-locals-response
-   (lambda (response) (run-hooks 'javadebugger-locals-hook )))
-
-;; modification watchpoint
-(defconst javadebugger-modificationWatchpoint-response "modificationwatchpoint" "")
-(defvar javadebugger-modificationWatchpoint-hook nil)
-(setq javadebugger-modificationWatchpoint-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-modificationWatchpoint-response
-   (lambda (response)
-     (run-hook-with-args 'javadebugger-modificationWatchpoint-hook
-                         (nth 1 response)
-                         (nth 2 response)
-                         (nth 0 (read-from-string (nth 3 response)))
-                         (nth 0 (read-from-string (nth 4 response))))))
-
-;; modificationWatchpointSet
-(defconst javadebugger-modificationWatchpointSet-response "modificationwatchpointset" "")
-(defvar javadebugger-modificationWatchpointSet-hook nil)
-(setq javadebugger-modificationWatchpointSet-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-modificationWatchpointSet-response
-   (lambda (response) (run-hooks 'javadebugger-modificationWatchpointSet-hook )))
-
-;; preparing class
-(defconst javadebugger-preparingClass-response "preparingclass" "")
-(defvar javadebugger-preparingClass-hook nil)
-(setq javadebugger-preparingClass-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-preparingClass-response
-   (lambda (response) (run-hook-with-args 'javadebugger-preparingClass-hook  (nth 1 response))))
-
-;; proxyExited
-(defconst javadebugger-proxyExited-response "proxyexited" "")
-(defvar javadebugger-proxyExited-hook nil)
-(setq javadebugger-proxyExited-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-proxyExited-response
-   (lambda (response) (run-hooks 'javadebugger-proxyExited-hook )))
-
-;; proxyStarted
-(defconst javadebugger-proxyStarted-response "proxystarted" "")
-(defvar javadebugger-proxyStarted-hook nil)
-(setq javadebugger-proxyStarted-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-proxyStarted-response
-   (lambda (response) (run-hooks 'javadebugger-proxyStarted-hook )))
-
-;; stack - variable number of location triplets
-(defconst javadebugger-stack-response "stack" "")
-(defvar javadebugger-stack-hook nil)
-(setq javadebugger-stack-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-stack-response
-   (lambda (response) (run-hook-with-args 'javadebugger-stack-hook (nth 1 response) (-partition-in-steps 3 3 (-slice response 2)))))
-
-;; step
-(defconst javadebugger-step-response "step" "")
-(defvar javadebugger-step-hook nil)
-(setq javadebugger-step-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-step-response
-   (lambda (response) (run-hook-with-args 'javadebugger-step-hook  (-slice response 1 7) (-slice response 7))))
-
-;; stepCreated
-(defconst javadebugger-stepCreated-response "stepcreated" "")
-(defvar javadebugger-stepCreated-hook nil)
-(setq javadebugger-stepCreated-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-stepCreated-response
-   (lambda (response) (run-hooks 'javadebugger-stepCreated-hook )))
-
-;; this
-(defconst javadebugger-this-response "this" "")
-(defvar javadebugger-this-hook nil)
-(setq javadebugger-this-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-this-response
-   (lambda (response) (run-hook-with-args 'javadebugger-this-hook (nth 0 (read-from-string (nth 1 response))))))
-
-;; threadList
-(defconst javadebugger-threadList-response "threadlist" "")
-(defvar javadebugger-threadList-hook nil)
-(setq javadebugger-threadList-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-threadList-response
-   (lambda (response) (run-hook-with-args 'javadebugger-threadList-hook (-partition-in-steps 6 6 (-slice response 1)))))
-
-;; threadDied
-(defconst javadebugger-threadDied-response "threaddied" "")
-(defvar javadebugger-threadDied-hook nil)
-(setq javadebugger-threadDied-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-threadDied-response
-   (lambda (response) (run-hook-with-args 'javadebugger-threadDied-hook  (-slice response 1 7))))
-
-;; threadStarted
-(defconst javadebugger-threadStarted-response "threadstarted" "")
-(defvar javadebugger-threadStarted-hook nil)
-(setq javadebugger-threadStarted-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-threadStarted-response
-   (lambda (response) (run-hook-with-args 'javadebugger-threadStarted-hook  (-slice response 1 7))))
-
-;; vmCreated
-(defconst javadebugger-vmCreated-response "vmcreated" "")
-(defvar javadebugger-vmCreated-hook nil)
-(setq javadebugger-vmCreated-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-vmCreated-response
-   (lambda (response) (run-hooks 'javadebugger-vmCreated-hook )))
-
-;; vmDied
-(defconst javadebugger-vmDied-response "vmdied" "")
-(defvar javadebugger-vmDied-hook nil)
-(setq javadebugger-vmDied-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-vmDied-response
-   (lambda (response) (run-hooks 'javadebugger-vmDied-hook )))
-
-;; vmDisconnected
-(defconst javadebugger-vmDisconnected-response "vmdisconnected" "")
-(defvar javadebugger-vmDisconnected-hook nil)
-(setq javadebugger-vmDisconnected-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-vmDisconnected-response
-   (lambda (response) (run-hooks 'javadebugger-vmDisconnected-hook )))
-
-;; vmResumed
-(defconst javadebugger-vmResumed-response "vmresumed" "")
-(defvar javadebugger-vmResumed-hook nil)
-(setq javadebugger-vmResumed-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-vmResumed-response
-   (lambda (response) (run-hooks 'javadebugger-vmResumed-hook )))
-
-;; vmStarted
-(defconst javadebugger-vmStarted-response "vmstarted" "")
-(defvar javadebugger-vmStarted-hook nil)
-(setq javadebugger-vmStarted-hook ())
-(ht-set javadebug-response-hooks
-   javadebugger-vmStarted-response
-   (lambda (response) (run-hooks 'javadebugger-vmStarted-hook )))
 #+END_SRC
 
-#+BEGIN_SRC emacs-lisp :tangle bugged.el
-;; breakpointCleared
-;;(add-hook 'javadebugger-breakpointCleared-hook (lambda ( breakId)
+** Debugger Commands
 
-;; accessWatchpoint
-(add-hook 'javadebugger-accessWatchpoint-hook
-          (lambda (className fieldName value)
-            (writeStringToBuffer proxyProcess  "Access watchpoint\n")
-            (writeOrgTableToBuffer
-             proxyProcess
-             "|Class:Field|Value|\n"
-             orgTableSeperator
-             (list (concat className ":" fieldName) value))))
+These are the commands a user can enter to the debugger.
 
-;; accessWatchpointSet
-(add-hook 'javadebugger-accessWatchpointSet-hook (lambda ()
-            (writeStringToBuffer proc (concat "Access watchpoint set.\n"))))
+Each command is described by a CommandHashEntry. Notice that we are doing low
+rent object oriented programming describing each command with a list containing
+methods for that command.
 
-;; breakpointCreated
-(add-hook 'javadebugger-breakpointCreated-hook
-          (lambda ( breakId loc)
-            (writeStringToBuffer proc (concat "Breakpoint  " breakId " created at " (javadebugger-LocationString loc)  ".\n"))))
-
-;; breakpointEntered
-(add-hook 'javadebugger-breakpointEntered-hook
-          (lambda ( breakId tr loc)
-            (reportBreak (concat "Breakpoint " breakId " entered") tr loc)))
-
-;; breakpointList
- (add-hook 'javadebugger-breakpointList-hook
-          (lambda (breakpoints)
-            (writeOrgTableToBuffer
-             proxyProcess
-             "|id|location|\n"
-             orgTableSeperator
-             (mapcar (lambda (x) (list (nth 0 x) (concat (nth 0 (nth 1 x)) ":" (nth 1 (nth 1 x))))) breakpoints))))
-
-;; catchEnabled
- (add-hook 'javadebugger-catchEnabled-hook
-          (lambda (enabled)
-            (writeStringToBuffer
-             proc
-             (format "Exceptions %s\n" (if (string= enabled "true") "enabled" "disabled")))))
-
-;; classes
-(add-hook 'javadebugger-classes-hook
-          (lambda (classes)
-            (writeStringToBuffer
-             proc
-             "Classes\n")
-            (dolist (r classes)
-              (writeStringToBuffer
-               proc
-               (format "%s\n" r)))))
-
-;; classPrepared
-(add-hook 'javadebugger-classPrepared-hook (lambda ( className)
-            (writeStringToBuffer proc (concat "class " className " loaded.\n"))))
-
-;; classUnloaded
-;;(add-hook 'javadebugger-classUnloaded-hook (lambda ( className)
-
-;; error
-(add-hook 'javadebugger-error-hook (lambda ( error)
-            (writeStringToBuffer proc (concat "Error: "  error "\n"))))
-
-;; exception
-(add-hook 'javadebugger-exception-hook
-          (lambda ( name loc message stack)
-            (writeStringToBuffer
-             proc
-             (concat
-              name " occured in target at " (javadebugger-LocationString loc) "\nMessage: " message "\nStack Trace:\n"))
-            (let ((c (mapcar (lambda (x) (-slice (assoc "fields" x) 1))  (-slice (assoc "contents"  stack) 1))))
-              (-each
-                  (-partition 3
-                              (-interleave
-                               (mapcar (lambda (x) (nth 1 (assoc "fileName" x))) c)
-                               (mapcar (lambda (x) (nth 1 (assoc "lineNumber" x))) c)
-                               (mapcar (lambda (x) (nth 1 (assoc "methodName" x))) c)))
-                (lambda (x) (writeStringToBuffer proc (format " %s\n" (javadebugger-LocationString x))))))))
-
-;; fields
-(add-hook 'javadebugger-fields-hook
-          (lambda (className fields)
-            (writeOrgTableToBuffer
-             proxyProcess
-             "|Class|Name|Type|Declaring Type|Enum|Transient|Volatile|Final|Static|\n"
-             (list className fields))))
-
-;; internalException
-(add-hook 'javadebugger-internalException-hook
-          (lambda (msg stack)
-            (writeStringToBuffer proc (concat "Internal exception in proxy: " msg "\n" stack "\n"))))
-
-;; log
-;;(add-hook 'javadebugger-log-hook (lambda ( msg)
-
-;; locals
-;;(add-hook 'javadebugger-locals-hook (lambda ()
-
-;; modification watchpoint
-(add-hook
- 'javadebugger-modificationWatchpoint-hook
- (lambda (className fieldName past future)
-   (writeStringToBuffer proxyProcess "Modification watchpoint\n")
-   (writeOrgTableToBuffer
-    proxyProcess
-    "| Object:Field | When | Value |\n"
-    orgTableSeperator
-    (list (concat className ":" fieldName) (list "Before" past) (list "After" future)))))
-
-;; modificationWatchpointSet
-(add-hook 'javadebugger-modificationWatchpointSet-hook (lambda ()
-            (writeStringToBuffer proc (concat "Modification watchpoint set.\n"))))
-
-;; preparing class
-(add-hook 'javadebugger-preparingClass-hook (lambda (name)
-            (writeStringToBuffer proc (concat "Preparing class " name ".\n"))))
-
-;; proxyExited
-(add-hook 'javadebugger-proxyExited-hook (lambda ()
-            (writeStringToBuffer proxyProcess "Debugger proxy exited\n")))
-
-;; proxyStarted
-(add-hook 'javadebugger-proxyStarted-hook (lambda ()
-            (writeStringToBuffer proxyProcess "Debugger proxy started\n")))
-
-;; stack
-(add-hook 'javadebugger-stack-hook
-          (lambda (id locations)
-            (writeStringToBuffer proxyProcess (concat "Stack for thread " id " \n"))
-            (dolist (l locations)
-              (writeStringToBuffer proxyProcess (concat (javadebugger-LocationString l) "\n")))))
-
-;; step
-(add-hook 'javadebugger-step-hook
-        (lambda (tr loc)
-            (reportBreak "step" tr loc)))
-
-;; stepCreated
-;;(add-hook 'javadebugger-stepCreated-hook (lambda ()
-
-;; this
-(add-hook 'javadebugger-this-hook
-          (lambda (th)
-                (writeOrgTableToBuffer
-                 proxyProcess
-                 thisTableTitle
-                 orgTableSeperator
-                 th)))
-
-;; threadList
-(add-hook 'javadebugger-threadList-hook
-          (lambda (threads)
-            (writeOrgTableToBuffer
-             proxyProcess
-             threadTableTitle
-             orgTableSeperator
-             threads)))
-
-;; threadDied
-;;(add-hook 'javadebugger-threadDied-hook (lambda ( tr)
-
-;; threadStarted
-;;(add-hook 'javadebugger-threadStarted-hook (lambda ( tr)
-
-;; vmCreated
-(add-hook 'javadebugger-vmCreated-hook (lambda ()
-        (writeStringToBuffer proxyProcess "virtual machine created\n")))
-
-;; vmDied
-(add-hook 'javadebugger-vmDied-hook (lambda ()
-        (writeStringToBuffer proxyProcess "virtual machine terminated\n")))
-
-;; vmDisconnected
-(add-hook 'javadebugger-vmDisconnected-hook (lambda ()
-        (writeStringToBuffer proxyProcess "virtual machine disconnected\n")))
-
-;; vmResumed
-(add-hook 'javadebugger-vmResumed-hook (lambda ()
-        (writeStringToBuffer proxyProcess "virtual machine resuming operation.\n")))
-
-;; vmStarted
-(add-hook 'javadebugger-vmStarted-hook (lambda ()
-              (writeStringToBuffer proxyProcess "virtual machine started\n")))
-
-
-(defun javadebugger-LocationString (l) (format "%s:%s %s" (locationFile l) (locationLineNumber l) (locationMethod l)))
-
-
-#+END_SRC
-
-*** Commands Sent to the Proxy
-
-**** Comands the Debugger Supports
-
-A supported command is described by a CommandHashEntry
+The commands are kept in a hash table called commandHashMap. The table is
+indexed by the string a user enters to invoke a command. The value for a key is
+a CommandHashEntry.  When the user types a command, the command is looked up in
+the hash table.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 (defun javadebug-makeCommandHashEntry (hashKey badCommandP describeCommand executeCommand proxyDoneP)
@@ -566,291 +102,89 @@ A supported command is described by a CommandHashEntry
 (defun javadebug-checkProxyDone  (e f)             (funcall (javadebug-hashProxyDoneP e) f))
 (defun javadebug-doCommand       (e p f)          (funcall (javadebug-hashDoCommand e) p f))
 
-#+END_SRC
-
-Support commands are kept in a hash table
-
-#+BEGIN_SRC emacs-lisp :tangle bugged.el
-
-(defconst commandHashMap
-  ((lambda (x)
-     (let ((h (ht-create)))
-       (mapc
-        (lambda (c) (ht-set h (javadebug-hashKey c) c))
-        x)
-       h))
-  (list
-   (javadebug-makeCommandHashEntry "access"
-                               (lambda (c) (/= (length c) 3))
-                               "access class-name field-name"
-                                (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format
-                                   "access,%s,%s\n"
-                                   (nth 1 c)
-                                   (nth 2 c))))
-                               (list javadebugger-accessWatchpointSet-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "arguments"
-                               (lambda (c) (not (or (= (length c) 1)
-                                                    (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
-                                                    (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
-                               "arguments [thread-id] [frame number]"
-                                (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format
-                                   "frame,%s,%s\n"
-                                   (if (= (length c) 1) defaultThread (nth 1 c))
-                                   (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c)))))
-                               (lambda (r) (string= (car r) "arguments")))
-   (javadebug-makeCommandHashEntry "attach"
-                               (lambda (c) (or (/= (length c) 3)  (not (string-match "[0-9]+" (nth 2 c)))))
-                               "attach host  [port number ]"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format "attach,%s,%s\n" (nth 1 c) (nth 2 c))))
-                               (list javadebugger-vmStarted-response  javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "back"
-                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
-                               "back [thread-id]"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format
-                                   "back,%s\n"
-                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
-                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "break"
-                               (lambda (c) (/= (length c) 3))
-                               "break class-name <line-number|method name>"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format "break,%s,%s\n" (nth 1 c) (nth 2 c))))
-                               (list javadebugger-breakpointCreated-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "breaks"
-                               (lambda (c) (/= (length c) 1))
-                               "breaks"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  "breaks\n"))
-                              (list javadebugger-breakpointList-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "catch"
-                               (lambda (c) (or (/= (length c) 2)  (and (not (string-match "on" (nth 1 c))) (not (string-match "off" (nth 1 c))))))
-                               "catch on|off"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format
-                                   "catch,%s\n"
-                                   (nth 1 c))))
-                               (list javadebugger-catchEnabled-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "classes"
-                               (lambda (c) (/= (length c) 1))
-                               "classes"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  "classes\n"))
-                               (list javadebugger-classes-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "clear"
-                               (lambda (c) (or (/= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c)))))
-                               "clear [breakpoint-id]"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format
-                                   "clear,%s\n"
-                                   (nth 1 c))))
-                               (list  javadebugger-breakpointCleared-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "continue"
-                               (lambda (c) (/= (length c) 1))
-                               "continue"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  "continue\n"))
-                               (list javadebugger-vmResumed-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "fields"
-                               (lambda (c) (/= (length c) 2))
-                               "fields"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format "fields,%s\n" (nth 1 c))))
-                               (list  javadebugger-fields-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "frame"
-                               (lambda (c) (not (or (= (length c) 1)
-                                                    (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
-                                                    (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
-                               "frame [thread-id] [frame number]"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format
-                                   "frame,%s,%s\n"
-                                   (if (= (length c) 1) defaultThread (nth 1 c))
-                                   (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c)))))
-                               (lambda (r) (string= (car r) "arguments")))
-   (javadebug-makeCommandHashEntry "help"
-                               (lambda (c) ())
-                               "help"
-                               (lambda (proxy c)
-                                 (dolist (v
-                                          (sort (ht-map (lambda (key value) (javadebug-hashDescribeCommand value)) commandHashMap) 'string<))
-                                   (writeStringToBuffer proxy (concat v "\n")))
-                                 (setq runningCommand ())
-                                 (javadebug-fix-output-buffer proxyProcess))
-                               (lambda (r) (string= (car r) "help")))
-   (javadebug-makeCommandHashEntry "into"
-                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
-                               "into [thread-id]"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format
-                                   "into,%s\n"
-                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
-                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "load"
-                               (lambda (c) (/= (length c) 1))
-                               "load"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  "run\n"))
-                               (list  javadebugger-classPrepared-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "locals"
-                               (lambda (c) (not (or (= (length c) 1)
-                                                    (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
-                                                    (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
-                               "locals [thread-id] [frame-number]"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format
-                                   "frame,%s,%s\n"
-                                   (if (= (length c) 1) defaultThread (nth 1 c))
-                                   (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c)))))
-                               (lambda (r) (string= (car r) "locals")))
-   (javadebug-makeCommandHashEntry "next"
-                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
-                               "next [thread-id]"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format
-                                   "next,%s\n"
-                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
-                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "modify"
-                               (lambda (c) (/= (length c) 3))
-                               "modify class-name field-name"
-                                (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format
-                                  "modify,%s,%s\n"
-                                   (nth 1 c)
-                                   (nth 2 c))))
-                               (list javadebugger-modificationWatchpointSet-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "prepare"
-                               (lambda (c) (/= (length c) 2))
-                               "prepare [class name]"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format "prepare,%s\n" (nth 1 c))))
-                               (list javadebugger-preparingClass-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "quit"
-                               (lambda (c) (/= (length c) 1))
-                               "quit"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  "quit\n"))
-                               (lambda (r) (string= (car r) "proxy")))
-   (javadebug-makeCommandHashEntry "run"
-                               (lambda (c) (/= (length c) 1))
-                               "run"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  "run\n"))
-                               (list javadebugger-vmResumed-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "stack"
-                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c))))))
-                               "stack [thread-id]"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format
-                                   "stack,%s\n"
-                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
-                               (list javadebugger-stack-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "this"
-                               (lambda (c) (not (or (= (length c) 1)
-                                                    (and (= (length c) 2)  (string-match "[0-9]+" (nth 1 c)))
-                                                    (and (= (length c) 3)   (string-match "[0-9]+" (nth 1 c)) (string-match "[0-9]+" (nth 2 c))))))
-                               "this [thread-id] [frame number]"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format
-                                   "this,%s,%s\n"
-                                   (if (= (length c) 1) defaultThread (nth 1 c))
-                                   (if (< (length c) 3) "0" (nth 2 c)))))
-                               (list  javadebugger-this-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
-   (javadebug-makeCommandHashEntry "threads"
-                                   (lambda (c) (/= (length c) 1))
-                                   "threads"
-                                   (lambda (proxy c)
-                                     (process-send-string
-                                      proxy
-                                      "threads\n"))
-                               (list javadebugger-threadList-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))))
-#+END_SRC
-
-**** Describing a Command About to be Executed
-
-A command about to be executed or being executed is described as a list.
-
-The contents of the list are:
-
-0. the comand key in the hash table commandList
-1. the command as it was entered
-2. the command as it was entered split on blanks into a list
-3. the command as it was sent to the proxy
-4. the commands entry in the hash table commandList
-
-#+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defun javadebug-describeRunnableCommand (key entered split entry)
-  (list key entered split entry))
-
-(defun getKeyFromCommandDescription        (cp)  (nth 0 cp))
-(defun getEnteredFromCommandDescription  (cp)  (nth 1 cp))
-(defun getSplitFromCommandDescription       (cp)  (nth 2 cp))
-(defun getCommandHashEntry             (cp)  (nth 3 cp))
+(defconst commandHashMap (ht-create))
 
 #+END_SRC
 
+The commandHashMap is filled with commands below.
 
-**** I have a bunch of commands that were just entered by the user
+*** Input a command
 
-They have been split into a list of strings; each command is a string in the
-list.
+Input to the elisp program comes from the org buffer created when the mode
+starts. The user enters a line at the end of the buffer and types a
+newline. That line goes to this elisp program because the mode puts a new
+routine for newline into its keymap.
 
-So what do I do with them?
+If the line is entered at the very bottom of the buffer it is treated as a
+command. Otherwise, it is just an ordinary line in a ORG buffer.
 
-First I check to see it they make any sense.
-
-The good ones are put into a list of commandDescriptions, the bad ones into a
-list of errors. Then we return a list of the two lists.
+Multiple commands can be entered if they are seperated by a semicolon. Each
+individual command is a series of tokens seperated by blanks. The first token
+identifies the command.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defun javadebug-newline ()
+  (interactive)
+  (let ((com (buffer-substring-no-properties
+              (line-beginning-position)
+              (line-end-position))))
+    (if (or
+         (/=  (line-end-position) (point-max))
+         (not (string-match-p "[a-zA-Z0-9 ]+" com)))
+        (org-return)
+      (beginning-of-line)
+      (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
+      (javadebug-add-commands (split-string com ";" 't)))))
+#+END_SRC
+
+There is a command history.
+
+#+BEGIN_SRC emacs-lisp :noweb-ref create-history
+(setq javadebug-ring (make-ring 8))
+(setq javadebug-ring-index 0)
+
+  (defun javadebug-commandring ()
+    (interactive)
+    (if (/=  (line-end-position) (point-max))
+        (progn
+          (goto-char (point-max))
+          (insert "\n")
+          (setq javadebug-ring-index 0))
+      (beginning-of-line)
+      (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
+      (if (not (ring-empty-p javadebug-ring))
+          (progn
+            (if (>= javadebug-ring-index (ring-length javadebug-ring))
+                (setq javadebug-ring-index 0))
+            (insert (ring-ref javadebug-ring javadebug-ring-index))
+            (setq javadebug-ring-index (1+ javadebug-ring-index))))))
+#+END_SRC
+
+This is the code which runs when the user enters a command. A lot of the work is
+done by the javadebug-check-commands routine which goes through the list of
+commands, looks each one up in the commandHashMap, checks the entered string
+with the routine kept in the javadebug-hashBadCommandP entry in the command's
+CommandHashEntry, puts all the good commands in one list, the bad commands in
+another, and returns the two lists. If there are any errors, they are printed
+out. If all the commands are good, they are queued for execution by being added
+to the commandsToRun list. At the end we run javadebug-execute-command which may
+send a command to the proxy.
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(defvar commandsToRun  () "list of commands to send to proxy")
+
+(defun javadebug-add-commands (com)
+  (let* ((r (javadebug-check-commands com))
+         (good (javadebug-check-commands-good r))
+         (bad  (javadebug-check-commands-bad r)))
+    (if (null bad)
+        (setq commandsToRun (append commandsToRun good))
+      (dolist (v bad)
+        (writeStringToBuffer proxyProcess (concat v "\n")))
+      (javadebug-fix-output-buffer proxyProcess)))
+  (javadebug-execute-command))
+
 (defun javadebug-check-commands (cm)
   (let ((checkErrors ())
         (goodCommands ()))
@@ -874,48 +208,42 @@ list of errors. Then we return a list of the two lists.
 
 (defun javadebug-check-commands-good (ls)  (nth 0 ls))
 (defun javadebug-check-commands-bad   (ls)  (nth 1 ls))
+
 #+END_SRC
 
-**** Commands Waiting to Run
+*** Describing a Command About to be Executed
 
-The commands waiting to run are on a list of CommandDescriptions:
+What exactly gets put on the commandsToRun queue?
+
+Another list pretending to be an object. This list was created in
+javadebug-check-commands.
+
+The contents of the list are:
+
+0. the comand key in the hash table commandList
+1. the command as it was entered
+2. the command as it was entered split on blanks into a list
+3. the command's entry in the hash table commandHashMap.
+
+An entry in the list is created by the javadebug-describeRunnableCommand.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defvar commandsToRun  () "list of commands to send to proxy")
+(defun javadebug-describeRunnableCommand (key entered split entry)
+  (list key entered split entry))
+
+(defun getKeyFromCommandDescription        (cp)  (nth 0 cp))
+(defun getEnteredFromCommandDescription  (cp)  (nth 1 cp))
+(defun getSplitFromCommandDescription       (cp)  (nth 2 cp))
+(defun getCommandHashEntry             (cp)  (nth 3 cp))
+
 #+END_SRC
 
-These commands were entered by the user at some time in the past
+*** Run a command
 
-We multiple commands entered at a single time as a unit. If one is invalid they
-are all invalid.
-
-If all are correct we queue up their descriptions, each waiting for a turn to run.
-
-A command is waiting to run if it is on the commandsToRun list.
-
-A command is sent to the proxy if the commandsToRun list is not empty and if
-there is no command in process. So, when we add a command to the commandsToRun
-list the precondition of sending a command to the proxy may have been met; we check
-by calling javadebug-execute-command.
-
-This is how a CommandDescription gets on the list of commands awaiting execution.
-
-#+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defun javadebug-add-commands (com)
-  (let* ((r (javadebug-check-commands com))
-         (good (javadebug-check-commands-good r))
-         (bad  (javadebug-check-commands-bad r)))
-    (if (null bad)
-        (setq commandsToRun (append commandsToRun good))
-      (dolist (v bad)
-        (writeStringToBuffer proxyProcess (concat v "\n")))
-      (javadebug-fix-output-buffer proxyProcess)))
-  (javadebug-execute-command))
-#+END_SRC
-
-**** What command is the debugger running now?
-
-The command in the variable runningCommand.
+Commands run one at a time, that is, a new command is not started until the
+previous command has finished. The command which is currently running is kept in
+the variable runningCommand (more exactly, the list create by
+describeRunnableCommand for that command is kept in runningCommand).
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 (defvar runningCommand   () "the command which is active in the proxy")
@@ -924,29 +252,51 @@ The command in the variable runningCommand.
 (defun proxyReady ()  (null runningCommand))
 #+END_SRC
 
-**** Sending a Command to the Proxy
+A command finishes when the proxy returns a response for which it is
+waiting. The appropriate responses are contained in the command's
+commandHashEntry. Usually that list includes an error response and the internal
+interrupt response. When we receive a response from the proxy, we check the
+response against the running commands expected responses. If they match, the
+running command has finished so we set runningCommand to null and try to start a
+new command. All this happens in the routine javadebug-checkForCompletedCommand.
 
-Happens in javadebug-execute-command.
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defun javadebug-checkForCompletedCommand (response)
+  (when
+      (and runningCommand
+           (member response (javadebug-hashProxyDoneP (getCommandHashEntry runningCommand))))
+    (setq runningCommand ())
+    (javadebug-execute-command)))
+#+END_SRC
+
+The command synchronisation mechanism is pretty simple.
 
 Two preconditions must be met before a command is sent to the proxy:
 
-1. No command is in process in the proxy,
-2. a command is available in the commandsToRun list.
+1. No command is in process in the proxy (runningCommand is null),
+2. a command is available in the commandsToRun list (commandsToRun is not null).
 
-We check the preconditions, and if they are met, execute the command.
+Whenever one of those preconditions changes we call javadebug-execute-command
+which checks both. If both hold, we run the command.
 
 All sorts of things are involved in executing a command:
 
 1. the command is put into it's final form, in other words, all defaults get
    added. Note that this is done at the last minute so the defaults might
-   have changed from when the command was entered,
+   have changed from when the command was entered. The work is done
+   by a method contained in the command's hashMapEntry which is an
+   entry in the list created by javadebug-describeRunnableCommand which
+   list is the element we took off the front of commandsToRun and placed into
+   runningCommand.
 
-2. the command goes into the command history,
+2. the command (as an ascii string) goes into the command history,
 
 3. the command is written to output,
 
-4. the command is sent to the proxy, here is where asynchronouse behavior
-   begins.
+4. the command is placed in runningCommand,
+
+5. we run the function contained in the doCommand field of the command's
+   commandHashEntry. This usually sends the command to the proxy.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 (defun javadebug-execute-command ()
@@ -962,32 +312,70 @@ All sorts of things are involved in executing a command:
      (getSplitFromCommandDescription runningCommand))))
 #+END_SRC
 
-**** When Does the Proxy Finish a Command
+Now we wait for the command to finish or for the user to act.
 
-When one of two things happen:
+** Responses from the proxy
 
-1. when the proxy signals an error, or
-2. when the proxy returns the string described in the CommandDescription.
+The proxy sends message to this elisp program by writing them to its
+stdout. EMACS receives the messages on stdin and passes them to this elisp
+program by calling the insertion filter defined below.
 
-And, bien sur, if a command is running.
+*** Responses
 
-If a command finishes the proxy is ready so run, if available, the next command.
+There is a set of possible responses (or commands if you like) that can be
+received from the proxy. A response is a new line terminated ascii string. Each
+string is a set of comma seperated values. The first value identifies the
+response. Each possible first value is defined as a constant and used as a key
+for an entry in the javadebug-response-hooks hash table.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defun javadebug-checkForCompletedCommand (command)
-  (when
-      (and runningCommand
-           (member command (javadebug-hashProxyDoneP (getCommandHashEntry runningCommand))))
-    (setq runningCommand ())
-    (javadebug-execute-command)))
+(setq javadebug-response-hooks (ht-create))
 #+END_SRC
 
-*** Handle Responses Received From  the Proxy
+For each entry in the table (and so for each response) we create an emacs hook
+variable. The value in the javadebug-response-hooks table is a function which
+parses the response and calls the functions which were added to the hook. The
+idea being that a user can customize the debugger by adding his own functions to
+a response's hook.
 
-**** Read a Response
+Here is an example of a response definition. This code runs when a proxy returns
+a list of running threads in response to a "threads" command.
+
+#+BEGIN_EXAMPLE
+
+(defconst javadebugger-threadList-response "threadlist" "")
+(defvar javadebugger-threadList-hook nil)
+(setq javadebugger-threadList-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-threadList-response
+   (lambda (response)
+       (run-hook-with-args 'javadebugger-threadList-hook
+          (-partition-in-steps 6 6 (-slice response 1)))))
+
+(add-hook 'javadebugger-threadList-hook
+          (lambda (threads)
+            (writeOrgTableToBuffer
+             proxyProcess
+             threadTableTitle
+             orgTableSeperator
+             threads)))
+#+END_EXAMPLE
+
+Responses are defined below.
+
+*** Receive a Response
 
 The proxy sends data to this elisp program through stdout. That data is
-manifested to this program when the following routine runs without warning.
+manifested to this program when EMACS calls the following routine without
+warning. The routine can return a response in pieces so we have to buffer
+the string returned. A response is ended by a new line.
+
+When we get a response, we split it on the commas and use the first field to
+look up the response's entry in the javadebug-response-hooks hash map. If the
+entry exists, it is a function which we execute with a funcall, knowing all
+along that the function will execute the hooks for this response. Then we clean
+up the output buffer and call javadebug-checkForCompletedCommand since the
+runningCommand may have finished and it might be time to start another command.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 
@@ -1018,60 +406,13 @@ manifested to this program when the following routine runs without warning.
     (select-window (get-buffer-window (process-buffer proc)))
     (goto-char (point-max))
     (insert "\n")))
-
 #+END_SRC
 
-** Input
-
-Input to the elisp program comes from the org buffer created when the mode
-starts. The user enters a line at the end of the buffer and types a
-newline. That line goes to this elisp program because the mode puts a new
-routine for newline into its keymap.
-
-#+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defun javadebug-newline ()
-  (interactive)
-  (let ((com (buffer-substring-no-properties
-              (line-beginning-position)
-              (line-end-position))))
-    (if (or
-         (/=  (line-end-position) (point-max))
-         (not (string-match-p "[a-zA-Z0-9 ]+" com)))
-        (org-return)
-      (beginning-of-line)
-      (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
-      (javadebug-add-commands (split-string com ";" 't)))))
-#+END_SRC
-
-There is a command history.
-
-#+BEGIN_SRC emacs-lisp :noweb-ref create-history
-(setq javadebug-ring (make-ring 8))
-(setq javadebug-ring-index 0)
-#+END_SRC
-
-#+BEGIN_SRC emacs-lisp :tangle bugged.el
-  (defun javadebug-commandring ()
-    (interactive)
-    (if (/=  (line-end-position) (point-max))
-        (progn
-          (goto-char (point-max))
-          (insert "\n")
-          (setq javadebug-ring-index 0))
-      (beginning-of-line)
-      (ignore-errors (kill-line))  ;; kill-line signals an error at the end of buffer
-      (if (not (ring-empty-p javadebug-ring))
-          (progn
-            (if (>= javadebug-ring-index (ring-length javadebug-ring))
-                (setq javadebug-ring-index 0))
-            (insert (ring-ref javadebug-ring javadebug-ring-index))
-            (setq javadebug-ring-index (1+ javadebug-ring-index))))))
-#+END_SRC
 
 ** Output
 
 The debugger outputs its results by writing them to the process buffer created
-when it starts.
+when it started. The buffer is an ORG mode buffer.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
   (defconst orgTableSeperator    "|----|\n"                                                               "string to seperate table title from contents")
@@ -1145,6 +486,7 @@ when it starts.
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 (defun reportBreak (preface thread location)
   (setq defaultThread (threadID thread))
+  (setq defaultFrame 0)
   (writeStringToBuffer
    proc
    (concat
@@ -1251,4 +593,922 @@ we can get this, maybe not.
     (set-marker (process-mark proxyProcess) (point))
     (insert (format "attach %s %s;prepare %s;load;break %s main;catch on;continue" host port mn mn))
     (javadebug-newline))
+#+END_SRC
+
+** Commands and responses
+
+
+
+***** access
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "access"
+ (javadebug-makeCommandHashEntry
+  "access"
+  (lambda (c) (/= (length c) 3))
+  "access class-name field-name"
+  (lambda (proxy c)
+    (process-send-string
+     proxy
+     (format
+      "access,%s,%s\n"
+      (nth 1 c)
+      (nth 2 c))))
+  (list javadebugger-accessWatchpointSet-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defconst
+  javadebugger-accessWatchpointSet-response
+  "accesswatchpointset" "")
+(defvar javadebugger-accessWatchpointSet-hook nil)
+(setq javadebugger-accessWatchpointSet-hook ())
+
+(ht-set
+ javadebug-response-hooks
+ javadebugger-accessWatchpointSet-response
+ (lambda (response)
+   (run-hooks 'javadebugger-accessWatchpointSet-hook )))
+
+(add-hook
+ 'javadebugger-accessWatchpointSet-hook (lambda ()
+                                          (writeStringToBuffer proc (concat "Access watchpoint set.\n"))))
+
+
+(defconst
+  javadebugger-accessWatchpoint-response
+  "accesswatchpoint" "")
+
+(defvar javadebugger-accessWatchpoint-hook nil)
+(setq javadebugger-accessWatchpoint-hook ())
+
+(ht-set javadebug-response-hooks
+        javadebugger-accessWatchpoint-response
+        (lambda (response)
+          (run-hook-with-args 'javadebugger-accessWatchpoint-hook
+                              (nth 1 response)
+                              (nth 2 response)
+                              (nth 0 (read-from-string (nth 3 response))))))
+
+(add-hook 'javadebugger-accessWatchpoint-hook
+          (lambda (className fieldName value)
+            (writeStringToBuffer proxyProcess  "Access watchpoint\n")
+            (writeOrgTableToBuffer
+             proxyProcess
+             "|Class:Field|Value|\n"
+             orgTableSeperator
+             (list (concat className ":" fieldName) value))))
+
+
+
+#+END_SRC
+
+
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defconst javadebugger-arguments-response "arguments" "")
+(defconst javadebugger-vmCreated-response "vmcreated" "")
+(defconst javadebugger-vmStarted-response "vmstarted" "")
+(defconst javadebugger-breakpointCreated-response "breakpointcreated" "")
+(defconst javadebugger-breakpointEntered-response "breakpointentered" "")
+(defconst javadebugger-breakpointList-response "breakpointlist" "")
+(defconst javadebugger-catchEnabled-response "catchenabled" "")
+(defconst javadebugger-exception-response "exception" "")
+(defconst javadebugger-classes-response "classes" "")
+(defconst javadebugger-breakpointCleared-response "breakpointcleared" "")
+(defconst javadebugger-fields-response "fields" "")
+(defconst javadebugger-classPrepared-response "classprepared" "")
+(defconst javadebugger-locals-response "locals" "")
+(defconst javadebugger-stepCreated-response "stepcreated" "")
+(defconst javadebugger-step-response "step" "")
+(defconst javadebugger-modificationWatchpointSet-response "modificationwatchpointset" "")
+(defconst javadebugger-modificationWatchpoint-response "modificationwatchpoint" "")
+(defconst javadebugger-preparingClass-response "preparingclass" "")
+(defconst javadebugger-proxyExited-response "proxyexited" "")
+(defconst javadebugger-vmDisconnected-response "vmdisconnected" "")
+(defconst javadebugger-vmDied-response "vmdied" "")
+(defconst javadebugger-vmResumed-response "vmresumed" "")
+(defconst javadebugger-stack-response "stack" "")
+(defconst javadebugger-this-response "this" "")
+(defconst javadebugger-threadList-response "threadlist" "")
+(defconst javadebugger-classUnloaded-response "classunloaded" "")
+(defconst javadebugger-error-response "error" "")
+(defconst javadebugger-internalException-response "internalexception" "")
+(defconst javadebugger-log-response "log" "")
+(defconst javadebugger-threadDied-response "threaddied" "")
+(defconst javadebugger-threadStarted-response "threadstarted" "")
+#+END_SRC
+
+**** arguments
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "arguments"
+   (javadebug-makeCommandHashEntry "arguments"
+                               (lambda (c) (not (or (= (length c) 1)
+                                                    (= (length c) 2))))
+                               "arguments [variable names]"
+                                (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "arguments,%s,%s,%s\n"
+                                   defaultThread
+                                   defaultFrame
+                                   (if (= (length c) 2) (nth 1 c) "*"))))
+                               (list javadebugger-arguments-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-arguments-hook nil)
+(setq javadebugger-arguments-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-arguments-response
+   (lambda (response) (run-hook-with-args 'javadebugger-arguments-hook (nth 0 (read-from-string (nth 1 response))))))
+
+(add-hook 'javadebugger-arguments-hook
+          (lambda (th)
+                (writeOrgTableToBuffer
+                 proxyProcess
+                 "| Name | Value |\n"
+                 orgTableSeperator
+                 th)))
+
+#+END_SRC
+
+**** attach
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "attach"
+   (javadebug-makeCommandHashEntry "attach"
+                               (lambda (c) (or (/= (length c) 3)  (not (string-match "[0-9]+" (nth 2 c)))))
+                               "attach host  [port number ]"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format "attach,%s,%s\n" (nth 1 c) (nth 2 c))))
+                               (list javadebugger-vmStarted-response  javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-vmCreated-hook nil)
+(setq javadebugger-vmCreated-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-vmCreated-response
+   (lambda (response) (run-hooks 'javadebugger-vmCreated-hook )))
+
+(add-hook 'javadebugger-vmCreated-hook (lambda ()
+        (writeStringToBuffer proxyProcess "virtual machine created\n")))
+
+(defconst javadebugger-vmStarted-response "vmstarted" "")
+(defvar javadebugger-vmStarted-hook nil)
+(setq javadebugger-vmStarted-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-vmStarted-response
+   (lambda (response) (run-hooks 'javadebugger-vmStarted-hook )))
+
+(add-hook 'javadebugger-vmStarted-hook (lambda ()
+              (writeStringToBuffer proxyProcess "virtual machine started\n")))
+
+#+END_SRC
+
+
+**** break
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "break"
+   (javadebug-makeCommandHashEntry "break"
+                               (lambda (c) (/= (length c) 3))
+                               "break class-name <line-number|method name>"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format "break,%s,%s\n" (nth 1 c) (nth 2 c))))
+                               (list javadebugger-breakpointCreated-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-breakpointCreated-hook nil)
+(setq javadebugger-breakpointCreated-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-breakpointCreated-response
+   (lambda (response) (run-hook-with-args 'javadebugger-breakpointCreated-hook (nth 1 response) (-slice response 2 5))))
+
+(add-hook 'javadebugger-breakpointCreated-hook
+          (lambda ( breakId loc)
+            (writeStringToBuffer proc (concat "Breakpoint  " breakId " created at " (javadebugger-LocationString loc)  ".\n"))))
+
+(defvar javadebugger-breakpointEntered-hook nil)
+(setq javadebugger-breakpointEntered-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-breakpointEntered-response
+   (lambda (response) (run-hook-with-args 'javadebugger-breakpointEntered-hook (nth 1 response) (-slice response 2 8) (-slice response 8))))
+
+(add-hook 'javadebugger-breakpointEntered-hook
+          (lambda ( breakId tr loc)
+            (reportBreak (concat "Breakpoint " breakId " entered") tr loc)))
+
+#+END_SRC
+
+**** breaks
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "breaks"
+   (javadebug-makeCommandHashEntry "breaks"
+                               (lambda (c) (/= (length c) 1))
+                               "breaks"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  "breaks\n"))
+                              (list javadebugger-breakpointList-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-breakpointList-hook nil)
+(setq javadebugger-breakpointList-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-breakpointList-response
+   (lambda (response) (run-hook-with-args 'javadebugger-breakpointList-hook
+     (mapcar (lambda (x) (list (car x) (-slice x 1))) (-partition-in-steps 4 4 (-slice response  1))))))
+
+ (add-hook 'javadebugger-breakpointList-hook
+          (lambda (breakpoints)
+            (writeOrgTableToBuffer
+             proxyProcess
+             "|id|location|\n"
+             orgTableSeperator
+             (mapcar (lambda (x) (list (nth 0 x) (concat (nth 0 (nth 1 x)) ":" (nth 1 (nth 1 x))))) breakpoints))))
+
+#+END_SRC
+
+**** catch
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "catch"
+   (javadebug-makeCommandHashEntry "catch"
+                               (lambda (c) (or (/= (length c) 2)  (and (not (string-match "on" (nth 1 c))) (not (string-match "off" (nth 1 c))))))
+                               "catch on|off"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "catch,%s\n"
+                                   (nth 1 c))))
+                               (list javadebugger-catchEnabled-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-catchEnabled-hook nil)
+(setq javadebugger-catchEnabled-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-catchEnabled-response
+   (lambda (response) (run-hook-with-args 'javadebugger-catchEnabled-hook (nth 1 response))))
+
+ (add-hook 'javadebugger-catchEnabled-hook
+          (lambda (enabled)
+            (writeStringToBuffer
+             proc
+             (format "Exceptions %s\n" (if (string= enabled "true") "enabled" "disabled")))))
+
+(defvar javadebugger-exception-hook nil)
+(setq javadebugger-exception-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-exception-response
+   (lambda (response)
+     (run-hook-with-args
+      'javadebugger-exception-hook
+      (nth 1 response)
+      (-slice response 2 5)
+      (nth 5 response)
+      (nth 0 (read-from-string (nth 6 response))))))
+
+(add-hook 'javadebugger-exception-hook
+          (lambda ( name loc message stack)
+            (writeStringToBuffer
+             proc
+             (concat
+              name " occured in target at " (javadebugger-LocationString loc) "\nMessage: " message "\nStack Trace:\n"))
+            (let ((c (mapcar (lambda (x) (-slice (assoc "fields" x) 1))  (-slice (assoc "contents"  stack) 1))))
+              (-each
+                  (-partition 3
+                              (-interleave
+                               (mapcar (lambda (x) (nth 1 (assoc "fileName" x))) c)
+                               (mapcar (lambda (x) (nth 1 (assoc "lineNumber" x))) c)
+                               (mapcar (lambda (x) (nth 1 (assoc "methodName" x))) c)))
+                (lambda (x) (writeStringToBuffer proc (format " %s\n" (javadebugger-LocationString x))))))))
+
+#+END_SRC
+
+**** classes
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "classes"
+   (javadebug-makeCommandHashEntry "classes"
+                               (lambda (c) (/= (length c) 1))
+                               "classes"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  "classes\n"))
+                               (list javadebugger-classes-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-classes-hook nil)
+(setq javadebugger-classes-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-classes-response
+   (lambda (response) (run-hook-with-args 'javadebugger-classes-hook  (-slice response 1))))
+
+(add-hook 'javadebugger-classes-hook
+          (lambda (classes)
+            (writeStringToBuffer
+             proc
+             "Classes\n")
+            (dolist (r classes)
+              (writeStringToBuffer
+               proc
+               (format "%s\n" r)))))
+
+#+END_SRC
+
+
+**** clear
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "clear"
+   (javadebug-makeCommandHashEntry "clear"
+                               (lambda (c) (or (/= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c)))))
+                               "clear [breakpoint-id]"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "clear,%s\n"
+                                   (nth 1 c))))
+                               (list  javadebugger-breakpointCleared-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-breakpointCleared-hook nil)
+(setq javadebugger-breakpointCleared-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-breakpointCleared-response
+   (lambda (response) (run-hook-with-args 'javadebugger-breakpointCleared-hook (nth 1 response))))
+
+
+#+END_SRC
+
+**** fields
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "fields"
+   (javadebug-makeCommandHashEntry "fields"
+                               (lambda (c) (/= (length c) 2))
+                               "fields"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format "fields,%s\n" (nth 1 c))))
+                               (list  javadebugger-fields-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-fields-hook nil)
+(setq javadebugger-fields-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-fields-response
+   (lambda (response) (run-hook-with-args 'javadebugger-fields-hook  (nth 1 response) (-partition-in-steps 8 8 (-slice response 2)))))
+
+(add-hook 'javadebugger-fields-hook
+          (lambda (className fields)
+            (writeOrgTableToBuffer
+             proxyProcess
+             "|Class|Name|Type|Declaring Type|Enum|Transient|Volatile|Final|Static|\n"
+             (list className fields))))
+
+#+END_SRC
+
+
+**** frame
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "frame"
+   (javadebug-makeCommandHashEntry "frame"
+                               (lambda (c) (not (or (= (length c) 1)
+                                                    (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
+                                                    (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
+                               "frame [thread-id] [frame number]"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "frame,%s,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c))
+                                   (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c)))))
+                               (lambda (r) (string= (car r) "arguments"))))
+#+END_SRC
+
+
+**** help
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "help"
+   (javadebug-makeCommandHashEntry "help"
+                               (lambda (c) ())
+                               "help"
+                               (lambda (proxy c)
+                                 (dolist (v
+                                          (sort (ht-map (lambda (key value) (javadebug-hashDescribeCommand value)) commandHashMap) 'string<))
+                                  (writeStringToBuffer proxy (concat v "\n")))
+                                 (setq runningCommand ())
+                                 (javadebug-fix-output-buffer proxyProcess))
+                               (lambda (r) (string= (car r) "help"))))
+#+END_SRC
+
+
+**** load
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "load"
+   (javadebug-makeCommandHashEntry "load"
+                               (lambda (c) (/= (length c) 1))
+                               "load"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  "run\n"))
+                               (list  javadebugger-classPrepared-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-classPrepared-hook nil)
+(setq javadebugger-classPrepared-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-classPrepared-response
+   (lambda (response) (run-hook-with-args 'javadebugger-classPrepared-hook (nth 1 response))))
+
+(add-hook 'javadebugger-classPrepared-hook (lambda ( className)
+            (writeStringToBuffer proc (concat "class " className " loaded.\n"))))
+
+#+END_SRC
+
+
+**** locals
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "locals"
+   (javadebug-makeCommandHashEntry "locals"
+                               (lambda (c) (not (or (= (length c) 1)
+                                                    (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
+                                                    (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
+                               "locals [thread-id] [frame-number]"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "frame,%s,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c))
+                                   (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c)))))
+                               (lambda (r) (string= (car r) "locals"))))
+
+(defvar javadebugger-locals-hook nil)
+(setq javadebugger-locals-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-locals-response
+   (lambda (response) (run-hooks 'javadebugger-locals-hook )))
+
+;; locals
+;;(add-hook 'javadebugger-locals-hook (lambda ()
+
+#+END_SRC
+
+
+**** back, into, next
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "back"
+   (javadebug-makeCommandHashEntry "back"
+                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
+                               "back [thread-id]"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "back,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
+                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(ht-set
+ commandHashMap
+ "into"
+   (javadebug-makeCommandHashEntry "into"
+                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
+                               "into [thread-id]"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "into,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
+                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(ht-set
+ commandHashMap
+ "next"
+   (javadebug-makeCommandHashEntry "next"
+                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
+                               "next [thread-id]"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "next,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
+                               (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-stepCreated-hook nil)
+(setq javadebugger-stepCreated-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-stepCreated-response
+   (lambda (response) (run-hooks 'javadebugger-stepCreated-hook )))
+
+;;(add-hook 'javadebugger-stepCreated-hook (lambda ()
+
+(defvar javadebugger-step-hook nil)
+(setq javadebugger-step-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-step-response
+   (lambda (response) (run-hook-with-args 'javadebugger-step-hook  (-slice response 1 7) (-slice response 7))))
+
+(add-hook 'javadebugger-step-hook
+        (lambda (tr loc)
+            (reportBreak "step" tr loc)))
+
+#+END_SRC
+
+
+**** modify
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "modify"
+   (javadebug-makeCommandHashEntry "modify"
+                               (lambda (c) (/= (length c) 3))
+                               "modify class-name field-name"
+                                (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                  "modify,%s,%s\n"
+                                   (nth 1 c)
+                                   (nth 2 c))))
+                               (list javadebugger-modificationWatchpointSet-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-modificationWatchpointSet-hook nil)
+(setq javadebugger-modificationWatchpointSet-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-modificationWatchpointSet-response
+   (lambda (response) (run-hooks 'javadebugger-modificationWatchpointSet-hook )))
+
+(add-hook 'javadebugger-modificationWatchpointSet-hook (lambda ()
+            (writeStringToBuffer proc (concat "Modification watchpoint set.\n"))))
+
+(defvar javadebugger-modificationWatchpoint-hook nil)
+(setq javadebugger-modificationWatchpoint-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-modificationWatchpoint-response
+   (lambda (response)
+     (run-hook-with-args 'javadebugger-modificationWatchpoint-hook
+                         (nth 1 response)
+                         (nth 2 response)
+                         (nth 0 (read-from-string (nth 3 response)))
+                         (nth 0 (read-from-string (nth 4 response))))))
+
+(add-hook
+ 'javadebugger-modificationWatchpoint-hook
+ (lambda (className fieldName past future)
+   (writeStringToBuffer proxyProcess "Modification watchpoint\n")
+   (writeOrgTableToBuffer
+    proxyProcess
+    "| Object:Field | When | Value |\n"
+    orgTableSeperator
+    (list (concat className ":" fieldName) (list "Before" past) (list "After" future)))))
+
+#+END_SRC
+
+
+**** prepare
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "prepare"
+   (javadebug-makeCommandHashEntry "prepare"
+                               (lambda (c) (/= (length c) 2))
+                               "prepare [class name]"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format "prepare,%s\n" (nth 1 c))))
+                               (list javadebugger-preparingClass-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-preparingClass-hook nil)
+(setq javadebugger-preparingClass-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-preparingClass-response
+   (lambda (response) (run-hook-with-args 'javadebugger-preparingClass-hook  (nth 1 response))))
+
+(add-hook 'javadebugger-preparingClass-hook (lambda (name)
+            (writeStringToBuffer proc (concat "Preparing class " name ".\n"))))
+
+#+END_SRC
+
+
+**** quit
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "quit"
+   (javadebug-makeCommandHashEntry "quit"
+                               (lambda (c) (/= (length c) 1))
+                               "quit"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  "quit\n"))
+                               (lambda (r) (string= (car r) "proxy"))))
+
+(defvar javadebugger-proxyExited-hook nil)
+(setq javadebugger-proxyExited-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-proxyExited-response
+   (lambda (response) (run-hooks 'javadebugger-proxyExited-hook )))
+
+(add-hook 'javadebugger-proxyExited-hook (lambda ()
+            (writeStringToBuffer proxyProcess "Debugger proxy exited\n")))
+
+(defvar javadebugger-vmDisconnected-hook nil)
+(setq javadebugger-vmDisconnected-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-vmDisconnected-response
+   (lambda (response) (run-hooks 'javadebugger-vmDisconnected-hook )))
+
+(add-hook 'javadebugger-vmDisconnected-hook (lambda ()
+        (writeStringToBuffer proxyProcess "virtual machine disconnected\n")))
+
+(defvar javadebugger-vmDied-hook nil)
+(setq javadebugger-vmDied-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-vmDied-response
+   (lambda (response) (run-hooks 'javadebugger-vmDied-hook )))
+
+(add-hook 'javadebugger-vmDied-hook (lambda ()
+        (writeStringToBuffer proxyProcess "virtual machine terminated\n")))
+
+#+END_SRC
+
+
+**** run
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "run"
+   (javadebug-makeCommandHashEntry "run"
+                               (lambda (c) (/= (length c) 1))
+                               "run"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  "run\n"))
+                               (list javadebugger-vmResumed-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(ht-set
+ commandHashMap
+ "continue"
+   (javadebug-makeCommandHashEntry "continue"
+                               (lambda (c) (/= (length c) 1))
+                               "continue"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  "run\n"))
+                               (list javadebugger-vmResumed-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-vmResumed-hook nil)
+(setq javadebugger-vmResumed-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-vmResumed-response
+   (lambda (response) (run-hooks 'javadebugger-vmResumed-hook )))
+
+(add-hook 'javadebugger-vmResumed-hook (lambda ()
+        (writeStringToBuffer proxyProcess "virtual machine resuming operation.\n")))
+
+#+END_SRC
+
+
+**** stack
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "stack"
+   (javadebug-makeCommandHashEntry "stack"
+                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c))))))
+                               "stack [thread-id]"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "stack,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
+                               (list javadebugger-stack-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-stack-hook nil)
+(setq javadebugger-stack-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-stack-response
+   (lambda (response) (run-hook-with-args 'javadebugger-stack-hook (nth 1 response) (-partition-in-steps 3 3 (-slice response 2)))))
+
+(add-hook 'javadebugger-stack-hook
+          (lambda (id locations)
+            (writeStringToBuffer proxyProcess (concat "Stack for thread " id " \n"))
+            (dolist (l locations)
+              (writeStringToBuffer proxyProcess (concat (javadebugger-LocationString l) "\n")))))
+
+#+END_SRC
+
+
+**** this
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "this"
+   (javadebug-makeCommandHashEntry "this"
+                               (lambda (c) (not (or (= (length c) 1)
+                                                    (and (= (length c) 2)  (string-match "[0-9]+" (nth 1 c)))
+                                                    (and (= (length c) 3)   (string-match "[0-9]+" (nth 1 c)) (string-match "[0-9]+" (nth 2 c))))))
+                               "this [thread-id] [frame number]"
+                               (lambda (proxy c)
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "this,%s,%s\n"
+                                   (if (= (length c) 1) defaultThread (nth 1 c))
+                                   (if (< (length c) 3) "0" (nth 2 c)))))
+                               (list  javadebugger-this-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-this-hook nil)
+(setq javadebugger-this-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-this-response
+   (lambda (response) (run-hook-with-args 'javadebugger-this-hook (nth 0 (read-from-string (nth 1 response))))))
+
+(add-hook 'javadebugger-this-hook
+          (lambda (th)
+                (writeOrgTableToBuffer
+                 proxyProcess
+                 thisTableTitle
+                 orgTableSeperator
+                 th)))
+
+#+END_SRC
+
+
+**** threads
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "threads"
+   (javadebug-makeCommandHashEntry "threads"
+                                   (lambda (c) (/= (length c) 1))
+                                   "threads"
+                                   (lambda (proxy c)
+                                     (process-send-string
+                                      proxy
+                                      "threads\n"))
+                               (list javadebugger-threadList-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+
+(defvar javadebugger-threadList-hook nil)
+(setq javadebugger-threadList-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-threadList-response
+   (lambda (response) (run-hook-with-args 'javadebugger-threadList-hook (-partition-in-steps 6 6 (-slice response 1)))))
+
+(add-hook 'javadebugger-threadList-hook
+          (lambda (threads)
+            (writeOrgTableToBuffer
+             proxyProcess
+             threadTableTitle
+             orgTableSeperator
+             threads)))
+
+#+END_SRC
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(defvar javadebugger-classUnloaded-hook nil)
+(setq javadebugger-classUnloaded-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-classUnloaded-response
+   (lambda (response) (run-hook-with-args 'javadebugger-classUnloaded-hook (nth 1 response))))
+
+;;(add-hook 'javadebugger-classUnloaded-hook (lambda ( className)
+
+(defvar javadebugger-error-hook nil)
+(setq javadebugger-error-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-error-response
+   (lambda (response) (run-hook-with-args 'javadebugger-error-hook (nth 1 response))))
+
+(add-hook 'javadebugger-error-hook (lambda ( error)
+            (writeStringToBuffer proc (concat "Error: "  error "\n"))))
+
+;; internalException
+(defvar javadebugger-internalException-hook nil)
+(setq javadebugger-internalException-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-internalException-response
+        (lambda (response) (run-hook-with-args 'javadebugger-internalException-hook (nth  1 response) (nth 2 response))))
+
+(add-hook 'javadebugger-internalException-hook
+          (lambda (msg stack)
+            (writeStringToBuffer proc (concat "Internal exception in proxy: " msg "\n" stack "\n"))))
+
+;; log
+(defvar javadebugger-log-hook nil)
+(setq javadebugger-log-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-log-response
+   (lambda (response) (run-hook-with-args 'javadebugger-log-hook (nth 1 response))))
+
+;; log
+;;(add-hook 'javadebugger-log-hook (lambda ( msg)
+
+
+;; proxyStarted
+(defvar javadebugger-proxyStarted-hook nil)
+(setq javadebugger-proxyStarted-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-proxyStarted-response
+   (lambda (response) (run-hooks 'javadebugger-proxyStarted-hook )))
+
+(add-hook 'javadebugger-proxyStarted-hook (lambda ()
+            (writeStringToBuffer proxyProcess "Debugger proxy started\n")))
+
+;; threadDied
+(defvar javadebugger-threadDied-hook nil)
+(setq javadebugger-threadDied-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-threadDied-response
+   (lambda (response) (run-hook-with-args 'javadebugger-threadDied-hook  (-slice response 1 7))))
+
+;;(add-hook 'javadebugger-threadDied-hook (lambda ( tr)
+
+;; threadStarted
+(defvar javadebugger-threadStarted-hook nil)
+(setq javadebugger-threadStarted-hook ())
+(ht-set javadebug-response-hooks
+   javadebugger-threadStarted-response
+   (lambda (response) (run-hook-with-args 'javadebugger-threadStarted-hook  (-slice response 1 7))))
+
+;; threadStarted
+;;(add-hook 'javadebugger-threadStarted-hook (lambda ( tr)
+
+(defun javadebugger-LocationString (l) (format "%s:%s %s" (locationFile l) (locationLineNumber l) (locationMethod l)))
+
 #+END_SRC
