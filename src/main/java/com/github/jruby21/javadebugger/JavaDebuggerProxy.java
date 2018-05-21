@@ -4,6 +4,10 @@
 
 package com.github.jruby21.javadebugger;
 
+
+import java.util.Arrays;
+import java.util.Iterator;
+
 import com.sun.jdi.AbsentInformationException;
 import com.sun.jdi.Bootstrap;
 import com.sun.jdi.ClassNotPreparedException;
@@ -186,13 +190,16 @@ public class JavaDebuggerProxy
 
                 trr = getThreadReference(tokens [1]);
                 sf  = trr.frame(Integer.parseInt(tokens [2]));
+
+                String [] refs = tokens [3].split("[.]");
+
                 debuggerOutput.output_arguments();
 
                 for (LocalVariable lv : sf.visibleVariables()) {
 
-                    if (lv.isArgument() && (tokens [3].equals("*") || tokens [3].equals(lv.name()))) {
+                    if (lv.isArgument() && (refs[0].equals("*") || refs[0].equals(lv.name()))) {
 
-                        debuggerOutput.output_variable(lv.name(), sf.getValue(lv), trr);
+                        debuggerOutput.output_variable(lv.name(), sf.getValue(lv), trr, refs);
                     }
                 }
 
@@ -463,7 +470,7 @@ public class JavaDebuggerProxy
             case THIS:
 
                 trr = getThreadReference(tokens[1]);
-                debuggerOutput.output_this(trr.frame(Integer.parseInt(tokens [2])).thisObject(), trr);
+                debuggerOutput.output_this(trr.frame(Integer.parseInt(tokens [2])).thisObject(), trr, tokens [2].split("[.]"));
 
                 break;
 

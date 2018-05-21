@@ -591,13 +591,45 @@ we can get this, maybe not.
 
     (goto-char (point-max))
     (set-marker (process-mark proxyProcess) (point))
-    (insert (format "attach %s %s;prepare %s;load;break %s main;catch on;continue" host port mn mn))
+    (insert (format "attach %s %s;prepare %s;wait classprepared;break %s main;catch on;continue" host port mn mn))
     (javadebug-newline))
 #+END_SRC
 
 ** Commands and responses
 
-
+#+BEGIN_SRC emacs-lisp :tangle bugged.el#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defconst javadebugger-arguments-response "arguments" "")
+(defconst javadebugger-breakpointCleared-response "breakpointcleared" "")
+(defconst javadebugger-breakpointCreated-response "breakpointcreated" "")
+(defconst javadebugger-breakpointEntered-response "breakpointentered" "")
+(defconst javadebugger-breakpointList-response "breakpointlist" "")
+(defconst javadebugger-catchEnabled-response "catchenabled" "")
+(defconst javadebugger-classPrepared-response "classprepared" "")
+(defconst javadebugger-classUnloaded-response "classunloaded" "")
+(defconst javadebugger-classes-response "classes" "")
+(defconst javadebugger-error-response "error" "")
+(defconst javadebugger-exception-response "exception" "")
+(defconst javadebugger-fields-response "fields" "")
+(defconst javadebugger-internalException-response "internalexception" "")
+(defconst javadebugger-locals-response "locals" "")
+(defconst javadebugger-log-response "log" "")
+(defconst javadebugger-modificationWatchpoint-response "modificationwatchpoint" "")
+(defconst javadebugger-modificationWatchpointSet-response "modificationwatchpointset" "")
+(defconst javadebugger-preparingClass-response "preparingclass" "")
+(defconst javadebugger-proxyExited-response "proxyexited" "")
+(defconst javadebugger-stack-response "stack" "")
+(defconst javadebugger-step-response "step" "")
+(defconst javadebugger-stepCreated-response "stepcreated" "")
+(defconst javadebugger-this-response "this" "")
+(defconst javadebugger-threadDied-response "threaddied" "")
+(defconst javadebugger-threadList-response "threadlist" "")
+(defconst javadebugger-threadStarted-response "threadstarted" "")
+(defconst javadebugger-vmCreated-response "vmcreated" "")
+(defconst javadebugger-vmDied-response "vmdied" "")
+(defconst javadebugger-vmDisconnected-response "vmdisconnected" "")
+(defconst javadebugger-vmResumed-response "vmresumed" "")
+(defconst javadebugger-vmStarted-response "vmstarted" "")
+#+END_SRC
 
 ***** access
 
@@ -662,42 +694,6 @@ we can get this, maybe not.
 
 
 
-#+END_SRC
-
-
-
-#+BEGIN_SRC emacs-lisp :tangle bugged.el#+BEGIN_SRC emacs-lisp :tangle bugged.el
-(defconst javadebugger-arguments-response "arguments" "")
-(defconst javadebugger-vmCreated-response "vmcreated" "")
-(defconst javadebugger-vmStarted-response "vmstarted" "")
-(defconst javadebugger-breakpointCreated-response "breakpointcreated" "")
-(defconst javadebugger-breakpointEntered-response "breakpointentered" "")
-(defconst javadebugger-breakpointList-response "breakpointlist" "")
-(defconst javadebugger-catchEnabled-response "catchenabled" "")
-(defconst javadebugger-exception-response "exception" "")
-(defconst javadebugger-classes-response "classes" "")
-(defconst javadebugger-breakpointCleared-response "breakpointcleared" "")
-(defconst javadebugger-fields-response "fields" "")
-(defconst javadebugger-classPrepared-response "classprepared" "")
-(defconst javadebugger-locals-response "locals" "")
-(defconst javadebugger-stepCreated-response "stepcreated" "")
-(defconst javadebugger-step-response "step" "")
-(defconst javadebugger-modificationWatchpointSet-response "modificationwatchpointset" "")
-(defconst javadebugger-modificationWatchpoint-response "modificationwatchpoint" "")
-(defconst javadebugger-preparingClass-response "preparingclass" "")
-(defconst javadebugger-proxyExited-response "proxyexited" "")
-(defconst javadebugger-vmDisconnected-response "vmdisconnected" "")
-(defconst javadebugger-vmDied-response "vmdied" "")
-(defconst javadebugger-vmResumed-response "vmresumed" "")
-(defconst javadebugger-stack-response "stack" "")
-(defconst javadebugger-this-response "this" "")
-(defconst javadebugger-threadList-response "threadlist" "")
-(defconst javadebugger-classUnloaded-response "classunloaded" "")
-(defconst javadebugger-error-response "error" "")
-(defconst javadebugger-internalException-response "internalexception" "")
-(defconst javadebugger-log-response "log" "")
-(defconst javadebugger-threadDied-response "threaddied" "")
-(defconst javadebugger-threadStarted-response "threadstarted" "")
 #+END_SRC
 
 **** arguments
@@ -1042,30 +1038,54 @@ we can get this, maybe not.
 #+END_SRC
 
 
-**** load
+**** wait
+
+Now this is a fairly amusing command.
+
+It's entered like this:
+
+     wait breakpointentered
+
+or
+
+     wait classprepared.
+
+In the first case it sends a run command to the proxy and waits for a
+breakpointentered response. In the second, it sends a run command to the proxy
+and waits for a classprepared response.
+
+When runningCommand is set to this command and the command is executed (i.e. the
+second lamda expression in the commandHashEntry runs) the code looks in
+runningCommand, picks out the commandHashEnry, picks the response list field out
+of the commandHashEntry, and sets it to a list containing - among other things,
+the second argument of the wait command. All this happens in the setf instruction
+below.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 
 (ht-set
  commandHashMap
- "load"
-   (javadebug-makeCommandHashEntry "load"
-                               (lambda (c) (/= (length c) 1))
-                               "load"
+ "wait"
+   (javadebug-makeCommandHashEntry "wait"
+                               (lambda (c) (/= (length c) 2))
+                               "wait"
                                (lambda (proxy c)
+                                 (setf
+                                  (nth 4 (nth 3 runningCommand))
+                                  (list (nth 1 c) javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response))
                                  (process-send-string
                                   proxy
                                   "run\n"))
-                               (list  javadebugger-classPrepared-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+                               ()))
 
 (defvar javadebugger-classPrepared-hook nil)
 (setq javadebugger-classPrepared-hook ())
 (ht-set javadebug-response-hooks
    javadebugger-classPrepared-response
-   (lambda (response) (run-hook-with-args 'javadebugger-classPrepared-hook (nth 1 response))))
+   (lambda (response) (run-hook-with-args 'javadebugger-classPrepared-hook response)))
 
-(add-hook 'javadebugger-classPrepared-hook (lambda ( className)
-            (writeStringToBuffer proc (concat "class " className " loaded.\n"))))
+(add-hook 'javadebugger-classPrepared-hook (lambda ( resp)
+            (writeStringToBuffer proc (concat  (s-join " " resp) ".\n"))))
 
 #+END_SRC
 
@@ -1477,8 +1497,8 @@ we can get this, maybe not.
    (lambda (response) (run-hook-with-args 'javadebugger-log-hook (nth 1 response))))
 
 ;; log
-;;(add-hook 'javadebugger-log-hook (lambda ( msg)
-
+(add-hook 'javadebugger-log-hook (lambda ( resp)
+            (writeStringToBuffer proc (concat  (s-join " " resp) ".\n"))))
 
 ;; proxyStarted
 (defvar javadebugger-proxyStarted-hook nil)
