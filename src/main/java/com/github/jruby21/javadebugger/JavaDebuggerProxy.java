@@ -53,7 +53,7 @@ public class JavaDebuggerProxy
     private int                         bpcount = 0;
     private DebuggerOutput debuggerOutput = new DebuggerOutput(System.out);
 
-    private enum TOKEN { ACCESS, ARGUMENTS, ATTACH, BACK, BREAK, BREAKS, CATCH, CLASSES, CLEAR, DONE, FIELDS, FRAME, INTO, LOCALS, MODIFY, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
+    private enum TOKEN { ACCESS, ARGUMENTS, ATTACH, BACK, BREAK, BREAKS, CATCH, CLASSES, CLEAR, DONE, FIELDS, INTO, LOCALS, MODIFY, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
 
     public static void main(String args[]) throws Exception    {
 
@@ -66,7 +66,7 @@ public class JavaDebuggerProxy
         HashMap<String, CommandDescription> keywords = new HashMap<String, CommandDescription>();
 
         keywords.put("access",    new CommandDescription(TOKEN.ACCESS, 3, "access  classname fieldname"));
-        keywords.put("arguments",  new CommandDescription(TOKEN.ARGUMENTS, 4, "arguments  thread-id frame-id"));
+        keywords.put("arguments",  new CommandDescription(TOKEN.ARGUMENTS, 4, "arguments  thread-id frame-id variables"));
         keywords.put("attach",     new CommandDescription(TOKEN.ATTACH, 3, "attach hostname port"));
         keywords.put("back",        new CommandDescription(TOKEN.BACK, 2, "back thread-id"));
         keywords.put("break",      new CommandDescription(TOKEN.BREAK, 3, "break class-name <line-number|method name>"));
@@ -75,8 +75,8 @@ public class JavaDebuggerProxy
         keywords.put("clear",        new CommandDescription(TOKEN.CLEAR, 2, "clear breakpoint-number"));
         keywords.put("catch",       new CommandDescription(TOKEN.CATCH, 2, "catch on|off"));
         keywords.put("fields",       new CommandDescription(TOKEN.FIELDS, 2, "fields class-name"));
-        keywords.put("frame",      new CommandDescription(TOKEN.FRAME, 3, "frame thread-id frame-id"));
         keywords.put("into",          new CommandDescription(TOKEN.INTO, 2, "back thread-id"));
+        keywords.put("locals",      new CommandDescription(TOKEN.LOCALS, 4, "locals  thread-id frame-id variables"));
         keywords.put("modify",    new CommandDescription(TOKEN.MODIFY, 3, "modify  classname fieldname"));
         keywords.put("next",         new CommandDescription(TOKEN.NEXT, 2, "back thread-id"));
         keywords.put("prepare",  new CommandDescription(TOKEN.PREPARE, 2, "prepare main-class"));
@@ -117,6 +117,7 @@ public class JavaDebuggerProxy
 
         ThreadReference trr  = null;
         StackFrame            sf    = null;
+        String []                    refs = null;
 
         if (command == null)  {
 
@@ -147,7 +148,7 @@ public class JavaDebuggerProxy
             && command.token != TOKEN.ATTACH
             && command.token != TOKEN.QUIT) {
 
-            out.println("error,no virtual machine");
+            debuggerOutput.output_error("no virtual machine");
             return;
         }
 
@@ -158,8 +159,8 @@ public class JavaDebuggerProxy
             case ACCESS:
 
                 try {
-                    Field                                             f = getField(tokens [1], tokens [2]);
-                    AccessWatchpointRequest  w = null;
+                    Field                                             f       = getField(tokens [1], tokens [2]);
+                    AccessWatchpointRequest  w      = null;
 
                     for (AccessWatchpointRequest a :  vm.eventRequestManager().accessWatchpointRequests()) {
 
@@ -191,9 +192,9 @@ public class JavaDebuggerProxy
                 trr = getThreadReference(tokens [1]);
                 sf  = trr.frame(Integer.parseInt(tokens [2]));
 
-                String [] refs = tokens [3].split("[.]");
+                refs = tokens [3].split("[.]");
 
-                debuggerOutput.output_arguments();
+                debuggerOutput.output_arguments(tokens [1], tokens [2]);
 
                 for (LocalVariable lv : sf.visibleVariables()) {
 
@@ -371,17 +372,6 @@ public class JavaDebuggerProxy
                     debuggerOutput.output_fields(r.name(), r.allFields());
                 }
 
-
-            case FRAME:
-
-                // sf = getThreadReference(tokens [1]).frame(Integer.parseInt(tokens [2]));
-
-                // out.println("locals,"
-                //             + fr.showLocals()
-                //             + "\narguments,"
-                //             + fr.showArguments());
-
-
                 break;
 
             case INTO:
@@ -391,6 +381,27 @@ public class JavaDebuggerProxy
                      StepRequest.STEP_INTO);
 
                 break;
+
+            case LOCALS:
+
+                 trr = getThreadReference(tokens [1]);
+                 sf  = trr.frame(Integer.parseInt(tokens [2]));
+
+                 refs = tokens [3].split("[.]");
+
+                 debuggerOutput.output_local(tokens [1], tokens [2]);
+
+                 for (LocalVariable lv : sf.visibleVariables()) {
+
+                     if (!lv.isArgument() && (refs[0].equals("*") || refs[0].equals(lv.name()))) {
+
+                         debuggerOutput.output_variable(lv.name(), sf.getValue(lv), trr, refs);
+                     }
+                 }
+
+                 debuggerOutput.output_endargument();
+                 break;
+
 
             case MODIFY:
 
@@ -470,7 +481,11 @@ public class JavaDebuggerProxy
             case THIS:
 
                 trr = getThreadReference(tokens[1]);
-                debuggerOutput.output_this(trr.frame(Integer.parseInt(tokens [2])).thisObject(), trr, tokens [2].split("[.]"));
+                debuggerOutput.output_this(tokens [1],
+                                           tokens [2],
+                                           trr.frame(Integer.parseInt(tokens [2])).thisObject(),
+                                           trr,
+                                           tokens [2].split("[.]"));
 
                 break;
 

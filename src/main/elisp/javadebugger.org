@@ -71,7 +71,7 @@ wait for the proxy to signal that it has started.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 
-(setq javadebug-response-hooks (ht-create))
+(setq javadebug-response-functions (ht-create))
 
 #+END_SRC
 
@@ -326,14 +326,14 @@ There is a set of possible responses (or commands if you like) that can be
 received from the proxy. A response is a new line terminated ascii string. Each
 string is a set of comma seperated values. The first value identifies the
 response. Each possible first value is defined as a constant and used as a key
-for an entry in the javadebug-response-hooks hash table.
+for an entry in the javadebug-response-functions hash table.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
-(setq javadebug-response-hooks (ht-create))
+(setq javadebug-response-functions (ht-create))
 #+END_SRC
 
 For each entry in the table (and so for each response) we create an emacs hook
-variable. The value in the javadebug-response-hooks table is a function which
+variable. The value in the javadebug-response-functions table is a function which
 parses the response and calls the functions which were added to the hook. The
 idea being that a user can customize the debugger by adding his own functions to
 a response's hook.
@@ -344,15 +344,15 @@ a list of running threads in response to a "threads" command.
 #+BEGIN_EXAMPLE
 
 (defconst javadebugger-threadList-response "threadlist" "")
-(defvar javadebugger-threadList-hook nil)
-(setq javadebugger-threadList-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-threadList-functions nil)
+(setq javadebugger-threadList-functions ())
+(ht-set javadebug-response-functions
    javadebugger-threadList-response
    (lambda (response)
-       (run-hook-with-args 'javadebugger-threadList-hook
+       (run-hook-with-args 'javadebugger-threadList-functions
           (-partition-in-steps 6 6 (-slice response 1)))))
 
-(add-hook 'javadebugger-threadList-hook
+(add-hook 'javadebugger-threadList-functions
           (lambda (threads)
             (writeOrgTableToBuffer
              proxyProcess
@@ -371,7 +371,7 @@ warning. The routine can return a response in pieces so we have to buffer
 the string returned. A response is ended by a new line.
 
 When we get a response, we split it on the commas and use the first field to
-look up the response's entry in the javadebug-response-hooks hash map. If the
+look up the response's entry in the javadebug-response-functions hash map. If the
 entry exists, it is a function which we execute with a funcall, knowing all
 along that the function will execute the hooks for this response. Then we clean
 up the output buffer and call javadebug-checkForCompletedCommand since the
@@ -391,13 +391,18 @@ runningCommand may have finished and it might be time to start another command.
         (dolist (c com)
           (if (not (s-blank? c))
               (let* ((response (mapcar 's-trim (split-string c ",")))
-                     (responseHook (ht-get javadebug-response-hooks (car response))))
+                     (responseHook (ht-get javadebug-response-functions (car response))))
                 (if (not responseHook)
                     (message (concat "unknown response " response))
-                  (funcall responseHook response)
+                  ;; well, who knows what came back
+                  (condition-case err
+                      (funcall responseHook response)
+                    (error
+                     (progn
+                       (setq runningCommand ())
+                       (message "Error in a response hook %s"  (error-message-string err)))))
                   (javadebug-fix-output-buffer proc)
                   (javadebug-checkForCompletedCommand (car response)))))))))
-
 
 ;; make the output buffer right
 (defun javadebug-fix-output-buffer (proc)
@@ -598,6 +603,7 @@ we can get this, maybe not.
 ** Commands and responses
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defconst javadebugger-accessWatchpointSet-response "accesswatchpointset" "")
 (defconst javadebugger-arguments-response "arguments" "")
 (defconst javadebugger-breakpointCleared-response "breakpointcleared" "")
 (defconst javadebugger-breakpointCreated-response "breakpointcreated" "")
@@ -617,6 +623,7 @@ we can get this, maybe not.
 (defconst javadebugger-modificationWatchpointSet-response "modificationwatchpointset" "")
 (defconst javadebugger-preparingClass-response "preparingclass" "")
 (defconst javadebugger-proxyExited-response "proxyexited" "")
+(defconst javadebugger-proxyStarted-response "proxystarted" "")
 (defconst javadebugger-stack-response "stack" "")
 (defconst javadebugger-step-response "step" "")
 (defconst javadebugger-stepCreated-response "stepcreated" "")
@@ -651,20 +658,18 @@ we can get this, maybe not.
       (nth 2 c))))
   (list javadebugger-accessWatchpointSet-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defconst
-  javadebugger-accessWatchpointSet-response
-  "accesswatchpointset" "")
-(defvar javadebugger-accessWatchpointSet-hook nil)
-(setq javadebugger-accessWatchpointSet-hook ())
+(defconst  javadebugger-accessWatchpointSet-response  "accesswatchpointset" "")
+(defvar javadebugger-accessWatchpointSet-functions nil)
+(setq javadebugger-accessWatchpointSet-functions ())
 
 (ht-set
- javadebug-response-hooks
- javadebugger-accessWatchpointSet-response
+ javadebug-response-functions
+ 'javadebugger-accessWatchpointSet-response
  (lambda (response)
-   (run-hooks 'javadebugger-accessWatchpointSet-hook )))
+   (run-hooks 'javadebugger-accessWatchpointSet-functions )))
 
 (add-hook
- 'javadebugger-accessWatchpointSet-hook (lambda ()
+ 'javadebugger-accessWatchpointSet-functions (lambda ()
                                           (writeStringToBuffer proc (concat "Access watchpoint set.\n"))))
 
 
@@ -672,18 +677,18 @@ we can get this, maybe not.
   javadebugger-accessWatchpoint-response
   "accesswatchpoint" "")
 
-(defvar javadebugger-accessWatchpoint-hook nil)
-(setq javadebugger-accessWatchpoint-hook ())
+(defvar javadebugger-accessWatchpoint-functions nil)
+(setq javadebugger-accessWatchpoint-functions ())
 
-(ht-set javadebug-response-hooks
+(ht-set javadebug-response-functions
         javadebugger-accessWatchpoint-response
         (lambda (response)
-          (run-hook-with-args 'javadebugger-accessWatchpoint-hook
+          (run-hook-with-args 'javadebugger-accessWatchpoint-functions
                               (nth 1 response)
                               (nth 2 response)
                               (nth 0 (read-from-string (nth 3 response))))))
 
-(add-hook 'javadebugger-accessWatchpoint-hook
+(add-hook 'javadebugger-accessWatchpoint-functions
           (lambda (className fieldName value)
             (writeStringToBuffer proxyProcess  "Access watchpoint\n")
             (writeOrgTableToBuffer
@@ -704,8 +709,7 @@ we can get this, maybe not.
  commandHashMap
  "arguments"
    (javadebug-makeCommandHashEntry "arguments"
-                               (lambda (c) (not (or (= (length c) 1)
-                                                    (= (length c) 2))))
+                               (lambda (c) (/= (length c) 1))
                                "arguments [variable names]"
                                 (lambda (proxy c)
                                  (process-send-string
@@ -717,19 +721,27 @@ we can get this, maybe not.
                                    (if (= (length c) 2) (nth 1 c) "*"))))
                                (list javadebugger-arguments-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-arguments-hook nil)
-(setq javadebugger-arguments-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-arguments-functions nil)
+(setq javadebugger-arguments-functions ())
+(ht-set javadebug-response-functions
    javadebugger-arguments-response
-   (lambda (response) (run-hook-with-args 'javadebugger-arguments-hook (nth 0 (read-from-string (nth 1 response))))))
+   (lambda (response)
+     (run-hook-with-args
+      'javadebugger-arguments-functions
+      (nth 1 response)
+      (nth 2 response)
+      (nth 0 (read-from-string (nth 3 response))))))
 
-(add-hook 'javadebugger-arguments-hook
-          (lambda (th)
-                (writeOrgTableToBuffer
-                 proxyProcess
-                 "| Name | Value |\n"
-                 orgTableSeperator
-                 th)))
+(add-hook 'javadebugger-arguments-functions
+          (lambda (thread frame th)
+            (writeStringToBuffer
+             proxyProcess
+             (format "Arguments for thread %s frame number %s.\n" thread frame))
+            (writeOrgTableToBuffer
+             proxyProcess
+             "| Name | Value |\n"
+             orgTableSeperator
+             th)))
 
 #+END_SRC
 
@@ -749,23 +761,23 @@ we can get this, maybe not.
                                   (format "attach,%s,%s\n" (nth 1 c) (nth 2 c))))
                                (list javadebugger-vmStarted-response  javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-vmCreated-hook nil)
-(setq javadebugger-vmCreated-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-vmCreated-functions nil)
+(setq javadebugger-vmCreated-functions ())
+(ht-set javadebug-response-functions
    javadebugger-vmCreated-response
-   (lambda (response) (run-hooks 'javadebugger-vmCreated-hook )))
+   (lambda (response) (run-hooks 'javadebugger-vmCreated-functions )))
 
-(add-hook 'javadebugger-vmCreated-hook (lambda ()
+(add-hook 'javadebugger-vmCreated-functions (lambda ()
         (writeStringToBuffer proxyProcess "virtual machine created\n")))
 
 (defconst javadebugger-vmStarted-response "vmstarted" "")
-(defvar javadebugger-vmStarted-hook nil)
-(setq javadebugger-vmStarted-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-vmStarted-functions nil)
+(setq javadebugger-vmStarted-functions ())
+(ht-set javadebug-response-functions
    javadebugger-vmStarted-response
-   (lambda (response) (run-hooks 'javadebugger-vmStarted-hook )))
+   (lambda (response) (run-hooks 'javadebugger-vmStarted-functions )))
 
-(add-hook 'javadebugger-vmStarted-hook (lambda ()
+(add-hook 'javadebugger-vmStarted-functions (lambda ()
               (writeStringToBuffer proxyProcess "virtual machine started\n")))
 
 #+END_SRC
@@ -787,23 +799,23 @@ we can get this, maybe not.
                                   (format "break,%s,%s\n" (nth 1 c) (nth 2 c))))
                                (list javadebugger-breakpointCreated-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-breakpointCreated-hook nil)
-(setq javadebugger-breakpointCreated-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-breakpointCreated-functions nil)
+(setq javadebugger-breakpointCreated-functions ())
+(ht-set javadebug-response-functions
    javadebugger-breakpointCreated-response
-   (lambda (response) (run-hook-with-args 'javadebugger-breakpointCreated-hook (nth 1 response) (-slice response 2 5))))
+   (lambda (response) (run-hook-with-args 'javadebugger-breakpointCreated-functions (nth 1 response) (-slice response 2 5))))
 
-(add-hook 'javadebugger-breakpointCreated-hook
+(add-hook 'javadebugger-breakpointCreated-functions
           (lambda ( breakId loc)
             (writeStringToBuffer proc (concat "Breakpoint  " breakId " created at " (javadebugger-LocationString loc)  ".\n"))))
 
-(defvar javadebugger-breakpointEntered-hook nil)
-(setq javadebugger-breakpointEntered-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-breakpointEntered-functions nil)
+(setq javadebugger-breakpointEntered-functions ())
+(ht-set javadebug-response-functions
    javadebugger-breakpointEntered-response
-   (lambda (response) (run-hook-with-args 'javadebugger-breakpointEntered-hook (nth 1 response) (-slice response 2 8) (-slice response 8))))
+   (lambda (response) (run-hook-with-args 'javadebugger-breakpointEntered-functions (nth 1 response) (-slice response 2 8) (-slice response 8))))
 
-(add-hook 'javadebugger-breakpointEntered-hook
+(add-hook 'javadebugger-breakpointEntered-functions
           (lambda ( breakId tr loc)
             (reportBreak (concat "Breakpoint " breakId " entered") tr loc)))
 
@@ -825,14 +837,14 @@ we can get this, maybe not.
                                   "breaks\n"))
                               (list javadebugger-breakpointList-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-breakpointList-hook nil)
-(setq javadebugger-breakpointList-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-breakpointList-functions nil)
+(setq javadebugger-breakpointList-functions ())
+(ht-set javadebug-response-functions
    javadebugger-breakpointList-response
-   (lambda (response) (run-hook-with-args 'javadebugger-breakpointList-hook
+   (lambda (response) (run-hook-with-args 'javadebugger-breakpointList-functions
      (mapcar (lambda (x) (list (car x) (-slice x 1))) (-partition-in-steps 4 4 (-slice response  1))))))
 
- (add-hook 'javadebugger-breakpointList-hook
+ (add-hook 'javadebugger-breakpointList-functions
           (lambda (breakpoints)
             (writeOrgTableToBuffer
              proxyProcess
@@ -860,31 +872,31 @@ we can get this, maybe not.
                                    (nth 1 c))))
                                (list javadebugger-catchEnabled-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-catchEnabled-hook nil)
-(setq javadebugger-catchEnabled-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-catchEnabled-functions nil)
+(setq javadebugger-catchEnabled-functions ())
+(ht-set javadebug-response-functions
    javadebugger-catchEnabled-response
-   (lambda (response) (run-hook-with-args 'javadebugger-catchEnabled-hook (nth 1 response))))
+   (lambda (response) (run-hook-with-args 'javadebugger-catchEnabled-functions (nth 1 response))))
 
- (add-hook 'javadebugger-catchEnabled-hook
+ (add-hook 'javadebugger-catchEnabled-functions
           (lambda (enabled)
             (writeStringToBuffer
              proc
              (format "Exceptions %s\n" (if (string= enabled "true") "enabled" "disabled")))))
 
-(defvar javadebugger-exception-hook nil)
-(setq javadebugger-exception-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-exception-functions nil)
+(setq javadebugger-exception-functions ())
+(ht-set javadebug-response-functions
    javadebugger-exception-response
    (lambda (response)
      (run-hook-with-args
-      'javadebugger-exception-hook
+      'javadebugger-exception-functions
       (nth 1 response)
       (-slice response 2 5)
       (nth 5 response)
       (nth 0 (read-from-string (nth 6 response))))))
 
-(add-hook 'javadebugger-exception-hook
+(add-hook 'javadebugger-exception-functions
           (lambda ( name loc message stack)
             (writeStringToBuffer
              proc
@@ -917,13 +929,13 @@ we can get this, maybe not.
                                   "classes\n"))
                                (list javadebugger-classes-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-classes-hook nil)
-(setq javadebugger-classes-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-classes-functions nil)
+(setq javadebugger-classes-functions ())
+(ht-set javadebug-response-functions
    javadebugger-classes-response
-   (lambda (response) (run-hook-with-args 'javadebugger-classes-hook  (-slice response 1))))
+   (lambda (response) (run-hook-with-args 'javadebugger-classes-functions  (-slice response 1))))
 
-(add-hook 'javadebugger-classes-hook
+(add-hook 'javadebugger-classes-functions
           (lambda (classes)
             (writeStringToBuffer
              proc
@@ -954,13 +966,34 @@ we can get this, maybe not.
                                    (nth 1 c))))
                                (list  javadebugger-breakpointCleared-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-breakpointCleared-hook nil)
-(setq javadebugger-breakpointCleared-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-breakpointCleared-functions nil)
+(setq javadebugger-breakpointCleared-functions ())
+(ht-set javadebug-response-functions
    javadebugger-breakpointCleared-response
-   (lambda (response) (run-hook-with-args 'javadebugger-breakpointCleared-hook (nth 1 response))))
+   (lambda (response) (run-hook-with-args 'javadebugger-breakpointCleared-functions (nth 1 response))))
 
 
+#+END_SRC
+
+
+**** down
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "down"
+   (javadebug-makeCommandHashEntry "down"
+                               (lambda (c) (/= (length c) 1))
+                               "down"
+                               (lambda (proxy c)
+                                 (setq defaultFrame (1+ defaultFrame))
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "stack,%s\n"
+                                   defaultThread)))
+                               (list javadebugger-stack-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 #+END_SRC
 
 **** fields
@@ -979,13 +1012,13 @@ we can get this, maybe not.
                                   (format "fields,%s\n" (nth 1 c))))
                                (list  javadebugger-fields-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-fields-hook nil)
-(setq javadebugger-fields-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-fields-functions nil)
+(setq javadebugger-fields-functions ())
+(ht-set javadebug-response-functions
    javadebugger-fields-response
-   (lambda (response) (run-hook-with-args 'javadebugger-fields-hook  (nth 1 response) (-partition-in-steps 8 8 (-slice response 2)))))
+   (lambda (response) (run-hook-with-args 'javadebugger-fields-functions  (nth 1 response) (-partition-in-steps 8 8 (-slice response 2)))))
 
-(add-hook 'javadebugger-fields-hook
+(add-hook 'javadebugger-fields-functions
           (lambda (className fields)
             (writeOrgTableToBuffer
              proxyProcess
@@ -1078,13 +1111,13 @@ below.
                                   "run\n"))
                                ()))
 
-(defvar javadebugger-classPrepared-hook nil)
-(setq javadebugger-classPrepared-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-classPrepared-functions nil)
+(setq javadebugger-classPrepared-functions ())
+(ht-set javadebug-response-functions
    javadebugger-classPrepared-response
-   (lambda (response) (run-hook-with-args 'javadebugger-classPrepared-hook response)))
+   (lambda (response) (run-hook-with-args 'javadebugger-classPrepared-functions response)))
 
-(add-hook 'javadebugger-classPrepared-hook (lambda ( resp)
+(add-hook 'javadebugger-classPrepared-functions (lambda ( resp)
             (writeStringToBuffer proc (concat  (s-join " " resp) ".\n"))))
 
 #+END_SRC
@@ -1098,27 +1131,39 @@ below.
  commandHashMap
  "locals"
    (javadebug-makeCommandHashEntry "locals"
-                               (lambda (c) (not (or (= (length c) 1)
-                                                    (and (= (length c) 2) (string-match "[0-9]+" (nth 1 c)))
-                                                    (and (= (length c) 3)  (string-match "[0-9]+" (nth 1 c))  (string-match "[0-9]+" (nth 2 c))))))
-                               "locals [thread-id] [frame-number]"
-                               (lambda (proxy c)
+                               (lambda (c) (/= (length c) 1))
+                               "locals [variable names]"
+                                (lambda (proxy c)
                                  (process-send-string
                                   proxy
                                   (format
-                                   "frame,%s,%s\n"
-                                   (if (= (length c) 1) defaultThread (nth 1 c))
-                                   (if (or (= (length c) 1)  (= (length c) 2)) "0" (nth 2 c)))))
-                               (lambda (r) (string= (car r) "locals"))))
+                                   "locals,%s,%s,%s\n"
+                                   defaultThread
+                                   defaultFrame
+                                   (if (= (length c) 2) (nth 1 c) "*"))))
+                               (list javadebugger-locals-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-locals-hook nil)
-(setq javadebugger-locals-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-locals-functions nil)
+(setq javadebugger-locals-functions ())
+(ht-set javadebug-response-functions
    javadebugger-locals-response
-   (lambda (response) (run-hooks 'javadebugger-locals-hook )))
+   (lambda (response)
+     (run-hook-with-args
+      'javadebugger-locals-functions
+      (nth 1 response)
+      (nth 2 response)
+      (nth 0 (read-from-string (nth 3 response))))))
 
-;; locals
-;;(add-hook 'javadebugger-locals-hook (lambda ()
+(add-hook 'javadebugger-locals-functions
+          (lambda (thread frame th)
+            (writeStringToBuffer
+             proxyProcess
+             (format "Locals for thread %s frame number %s.\n" thread frame))
+            (writeOrgTableToBuffer
+             proxyProcess
+             "| Name | Value |\n"
+             orgTableSeperator
+             th)))
 
 #+END_SRC
 
@@ -1169,21 +1214,21 @@ below.
                                    (if (= (length c) 1) defaultThread (nth 1 c)))))
                                (list javadebugger-step-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-stepCreated-hook nil)
-(setq javadebugger-stepCreated-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-stepCreated-functions nil)
+(setq javadebugger-stepCreated-functions ())
+(ht-set javadebug-response-functions
    javadebugger-stepCreated-response
-   (lambda (response) (run-hooks 'javadebugger-stepCreated-hook )))
+   (lambda (response) (run-hooks 'javadebugger-stepCreated-functions )))
 
-;;(add-hook 'javadebugger-stepCreated-hook (lambda ()
+;;(add-hook 'javadebugger-stepCreated-functions (lambda ()
 
-(defvar javadebugger-step-hook nil)
-(setq javadebugger-step-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-step-functions nil)
+(setq javadebugger-step-functions ())
+(ht-set javadebug-response-functions
    javadebugger-step-response
-   (lambda (response) (run-hook-with-args 'javadebugger-step-hook  (-slice response 1 7) (-slice response 7))))
+   (lambda (response) (run-hook-with-args 'javadebugger-step-functions  (-slice response 1 7) (-slice response 7))))
 
-(add-hook 'javadebugger-step-hook
+(add-hook 'javadebugger-step-functions
         (lambda (tr loc)
             (reportBreak "step" tr loc)))
 
@@ -1209,28 +1254,28 @@ below.
                                    (nth 2 c))))
                                (list javadebugger-modificationWatchpointSet-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-modificationWatchpointSet-hook nil)
-(setq javadebugger-modificationWatchpointSet-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-modificationWatchpointSet-functions nil)
+(setq javadebugger-modificationWatchpointSet-functions ())
+(ht-set javadebug-response-functions
    javadebugger-modificationWatchpointSet-response
-   (lambda (response) (run-hooks 'javadebugger-modificationWatchpointSet-hook )))
+   (lambda (response) (run-hooks 'javadebugger-modificationWatchpointSet-functions )))
 
-(add-hook 'javadebugger-modificationWatchpointSet-hook (lambda ()
+(add-hook 'javadebugger-modificationWatchpointSet-functions (lambda ()
             (writeStringToBuffer proc (concat "Modification watchpoint set.\n"))))
 
-(defvar javadebugger-modificationWatchpoint-hook nil)
-(setq javadebugger-modificationWatchpoint-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-modificationWatchpoint-functions nil)
+(setq javadebugger-modificationWatchpoint-functions ())
+(ht-set javadebug-response-functions
    javadebugger-modificationWatchpoint-response
    (lambda (response)
-     (run-hook-with-args 'javadebugger-modificationWatchpoint-hook
+     (run-hook-with-args 'javadebugger-modificationWatchpoint-functions
                          (nth 1 response)
                          (nth 2 response)
                          (nth 0 (read-from-string (nth 3 response)))
                          (nth 0 (read-from-string (nth 4 response))))))
 
 (add-hook
- 'javadebugger-modificationWatchpoint-hook
+ 'javadebugger-modificationWatchpoint-functions
  (lambda (className fieldName past future)
    (writeStringToBuffer proxyProcess "Modification watchpoint\n")
    (writeOrgTableToBuffer
@@ -1258,13 +1303,13 @@ below.
                                   (format "prepare,%s\n" (nth 1 c))))
                                (list javadebugger-preparingClass-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-preparingClass-hook nil)
-(setq javadebugger-preparingClass-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-preparingClass-functions nil)
+(setq javadebugger-preparingClass-functions ())
+(ht-set javadebug-response-functions
    javadebugger-preparingClass-response
-   (lambda (response) (run-hook-with-args 'javadebugger-preparingClass-hook  (nth 1 response))))
+   (lambda (response) (run-hook-with-args 'javadebugger-preparingClass-functions  (nth 1 response))))
 
-(add-hook 'javadebugger-preparingClass-hook (lambda (name)
+(add-hook 'javadebugger-preparingClass-functions (lambda (name)
             (writeStringToBuffer proc (concat "Preparing class " name ".\n"))))
 
 #+END_SRC
@@ -1286,31 +1331,31 @@ below.
                                   "quit\n"))
                                (lambda (r) (string= (car r) "proxy"))))
 
-(defvar javadebugger-proxyExited-hook nil)
-(setq javadebugger-proxyExited-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-proxyExited-functions nil)
+(setq javadebugger-proxyExited-functions ())
+(ht-set javadebug-response-functions
    javadebugger-proxyExited-response
-   (lambda (response) (run-hooks 'javadebugger-proxyExited-hook )))
+   (lambda (response) (run-hooks 'javadebugger-proxyExited-functions )))
 
-(add-hook 'javadebugger-proxyExited-hook (lambda ()
+(add-hook 'javadebugger-proxyExited-functions (lambda ()
             (writeStringToBuffer proxyProcess "Debugger proxy exited\n")))
 
-(defvar javadebugger-vmDisconnected-hook nil)
-(setq javadebugger-vmDisconnected-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-vmDisconnected-functions nil)
+(setq javadebugger-vmDisconnected-functions ())
+(ht-set javadebug-response-functions
    javadebugger-vmDisconnected-response
-   (lambda (response) (run-hooks 'javadebugger-vmDisconnected-hook )))
+   (lambda (response) (run-hooks 'javadebugger-vmDisconnected-functions )))
 
-(add-hook 'javadebugger-vmDisconnected-hook (lambda ()
+(add-hook 'javadebugger-vmDisconnected-functions (lambda ()
         (writeStringToBuffer proxyProcess "virtual machine disconnected\n")))
 
-(defvar javadebugger-vmDied-hook nil)
-(setq javadebugger-vmDied-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-vmDied-functions nil)
+(setq javadebugger-vmDied-functions ())
+(ht-set javadebug-response-functions
    javadebugger-vmDied-response
-   (lambda (response) (run-hooks 'javadebugger-vmDied-hook )))
+   (lambda (response) (run-hooks 'javadebugger-vmDied-functions )))
 
-(add-hook 'javadebugger-vmDied-hook (lambda ()
+(add-hook 'javadebugger-vmDied-functions (lambda ()
         (writeStringToBuffer proxyProcess "virtual machine terminated\n")))
 
 #+END_SRC
@@ -1344,14 +1389,33 @@ below.
                                   "run\n"))
                                (list javadebugger-vmResumed-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-vmResumed-hook nil)
-(setq javadebugger-vmResumed-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-vmResumed-functions nil)
+(setq javadebugger-vmResumed-functions ())
+(ht-set javadebug-response-functions
    javadebugger-vmResumed-response
-   (lambda (response) (run-hooks 'javadebugger-vmResumed-hook )))
+   (lambda (response) (run-hooks 'javadebugger-vmResumed-functions )))
 
-(add-hook 'javadebugger-vmResumed-hook (lambda ()
+(add-hook 'javadebugger-vmResumed-functions (lambda ()
         (writeStringToBuffer proxyProcess "virtual machine resuming operation.\n")))
+
+#+END_SRC
+
+**** set
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(ht-set
+ commandHashMap
+ "set"
+   (javadebug-makeCommandHashEntry "set"
+                               (lambda (c) (or (/= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c)))))
+                               "set [thread-id]"
+                               (lambda (proxy c)
+                                 (setq defaultThread (nth 1 c))
+                                 (process-send-string
+                                  proxy
+                                  "threads\n"))
+                               (list javadebugger-threadList-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
 #+END_SRC
 
@@ -1364,27 +1428,47 @@ below.
  commandHashMap
  "stack"
    (javadebug-makeCommandHashEntry "stack"
-                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c))))))
-                               "stack [thread-id]"
+                               (lambda (c) (/= (length c) 1))
+                               "stack"
                                (lambda (proxy c)
                                  (process-send-string
                                   proxy
                                   (format
                                    "stack,%s\n"
-                                   (if (= (length c) 1) defaultThread (nth 1 c)))))
+                                   defaultThread)))
                                (list javadebugger-stack-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-stack-hook nil)
-(setq javadebugger-stack-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-stack-functions nil)
+(setq javadebugger-stack-functions ())
+(ht-set javadebug-response-functions
    javadebugger-stack-response
-   (lambda (response) (run-hook-with-args 'javadebugger-stack-hook (nth 1 response) (-partition-in-steps 3 3 (-slice response 2)))))
+   (lambda (response) (run-hook-with-args 'javadebugger-stack-functions (nth 1 response) (-partition-in-steps 3 3 (-slice response 2)))))
 
-(add-hook 'javadebugger-stack-hook
+(add-hook 'javadebugger-stack-functions
           (lambda (id locations)
             (writeStringToBuffer proxyProcess (concat "Stack for thread " id " \n"))
-            (dolist (l locations)
-              (writeStringToBuffer proxyProcess (concat (javadebugger-LocationString l) "\n")))))
+            (writeOrgTableToBuffer
+             proxyProcess
+             "||Frame|File|Line|Method|\n"
+             orgTableSeperator
+             (let ((ff ())
+                   (locs locations))
+               (dotimes (i (length locs))
+                 (setq ff
+                       (cons
+                        (cons
+                         (if (= i defaultFrame) "*" "")
+                         (cons
+                          (number-to-string i)
+                          (nth i locs)))
+                        ff)))
+               (reverse ff)))
+            (when (< defaultFrame (length locations))
+              (let ((loc (nth defaultFrame locations)))
+                (setSourceFileWindow
+                 proxyProcess
+                 (locationFile loc)
+                 (locationLineNumber loc))))))
 
 #+END_SRC
 
@@ -1397,27 +1481,33 @@ below.
  commandHashMap
  "this"
    (javadebug-makeCommandHashEntry "this"
-                               (lambda (c) (not (or (= (length c) 1)
-                                                    (and (= (length c) 2)  (string-match "[0-9]+" (nth 1 c)))
-                                                    (and (= (length c) 3)   (string-match "[0-9]+" (nth 1 c)) (string-match "[0-9]+" (nth 2 c))))))
-                               "this [thread-id] [frame number]"
+                               (lambda (c) (/= (length c) 1))
+                               "this [default-thread-id] [default-frame number]"
                                (lambda (proxy c)
                                  (process-send-string
                                   proxy
                                   (format
                                    "this,%s,%s\n"
-                                   (if (= (length c) 1) defaultThread (nth 1 c))
-                                   (if (< (length c) 3) "0" (nth 2 c)))))
+                                   defaultThread,
+                                   defaultFrame)))
                                (list  javadebugger-this-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-this-hook nil)
-(setq javadebugger-this-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-this-functions nil)
+(setq javadebugger-this-functions ())
+(ht-set javadebug-response-functions
    javadebugger-this-response
-   (lambda (response) (run-hook-with-args 'javadebugger-this-hook (nth 0 (read-from-string (nth 1 response))))))
+   (lambda (response)
+     (run-hook-with-args
+      'javadebugger-this-functions
+      (nth 1 response)
+      (nth 2 response)
+      (nth 0 (read-from-string (nth 3 response))))))
 
-(add-hook 'javadebugger-this-hook
-          (lambda (th)
+(add-hook 'javadebugger-this-functions
+          (lambda (thread frame th)
+            (writeStringToBuffer
+             proxyProcess
+             (format "This for thread %s frame number %s.\n" thread frame))
                 (writeOrgTableToBuffer
                  proxyProcess
                  thisTableTitle
@@ -1443,13 +1533,13 @@ below.
                                       "threads\n"))
                                (list javadebugger-threadList-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defvar javadebugger-threadList-hook nil)
-(setq javadebugger-threadList-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-threadList-functions nil)
+(setq javadebugger-threadList-functions ())
+(ht-set javadebug-response-functions
    javadebugger-threadList-response
-   (lambda (response) (run-hook-with-args 'javadebugger-threadList-hook (-partition-in-steps 6 6 (-slice response 1)))))
+   (lambda (response) (run-hook-with-args 'javadebugger-threadList-functions (-partition-in-steps 6 6 (-slice response 1)))))
 
-(add-hook 'javadebugger-threadList-hook
+(add-hook 'javadebugger-threadList-functions
           (lambda (threads)
             (writeOrgTableToBuffer
              proxyProcess
@@ -1459,75 +1549,95 @@ below.
 
 #+END_SRC
 
+**** up
+
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 
-(defvar javadebugger-classUnloaded-hook nil)
-(setq javadebugger-classUnloaded-hook ())
-(ht-set javadebug-response-hooks
+(ht-set
+ commandHashMap
+ "up"
+   (javadebug-makeCommandHashEntry "up"
+                               (lambda (c) (and (/= (length c) 1) (> defaultFrame 0)))
+                               "up"
+                               (lambda (proxy c)
+                                 (setq defaultFrame (1- defaultFrame))
+                                 (process-send-string
+                                  proxy
+                                  (format
+                                   "stack,%s\n"
+                                   defaultThread)))
+                               (list javadebugger-stack-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+#+END_SRC
+
+#+BEGIN_SRC emacs-lisp :tangle bugged.el
+
+(defvar javadebugger-classUnloaded-functions nil)
+(setq javadebugger-classUnloaded-functions ())
+(ht-set javadebug-response-functions
    javadebugger-classUnloaded-response
-   (lambda (response) (run-hook-with-args 'javadebugger-classUnloaded-hook (nth 1 response))))
+   (lambda (response) (run-hook-with-args 'javadebugger-classUnloaded-functions (nth 1 response))))
 
-;;(add-hook 'javadebugger-classUnloaded-hook (lambda ( className)
+;;(add-functions 'javadebugger-classUnloaded-functions (lambda ( className)
 
-(defvar javadebugger-error-hook nil)
-(setq javadebugger-error-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-error-functions nil)
+(setq javadebugger-error-functions ())
+(ht-set javadebug-response-functions
    javadebugger-error-response
-   (lambda (response) (run-hook-with-args 'javadebugger-error-hook (nth 1 response))))
+   (lambda (response) (run-hook-with-args 'javadebugger-error-functions (nth 1 response))))
 
-(add-hook 'javadebugger-error-hook (lambda ( error)
+(add-hook 'javadebugger-error-functions (lambda ( error)
             (writeStringToBuffer proc (concat "Error: "  error "\n"))))
 
 ;; internalException
-(defvar javadebugger-internalException-hook nil)
-(setq javadebugger-internalException-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-internalException-functions nil)
+(setq javadebugger-internalException-functions ())
+(ht-set javadebug-response-functions
    javadebugger-internalException-response
-        (lambda (response) (run-hook-with-args 'javadebugger-internalException-hook (nth  1 response) (nth 2 response))))
+        (lambda (response) (run-hook-with-args 'javadebugger-internalException-functions (nth  1 response) (nth 2 response))))
 
-(add-hook 'javadebugger-internalException-hook
+(add-hook 'javadebugger-internalException-functions
           (lambda (msg stack)
             (writeStringToBuffer proc (concat "Internal exception in proxy: " msg "\n" stack "\n"))))
 
 ;; log
-(defvar javadebugger-log-hook nil)
-(setq javadebugger-log-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-log-functions nil)
+(setq javadebugger-log-functions ())
+(ht-set javadebug-response-functions
    javadebugger-log-response
-   (lambda (response) (run-hook-with-args 'javadebugger-log-hook (nth 1 response))))
+   (lambda (response) (run-hook-with-args 'javadebugger-log-functions (nth 1 response))))
 
 ;; log
-(add-hook 'javadebugger-log-hook (lambda ( resp)
+(add-hook 'javadebugger-log-functions (lambda ( resp)
             (writeStringToBuffer proc (concat  (s-join " " resp) ".\n"))))
 
 ;; proxyStarted
-(defvar javadebugger-proxyStarted-hook nil)
-(setq javadebugger-proxyStarted-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-proxyStarted-functions nil)
+(setq javadebugger-proxyStarted-functions ())
+(ht-set javadebug-response-functions
    javadebugger-proxyStarted-response
-   (lambda (response) (run-hooks 'javadebugger-proxyStarted-hook )))
+   (lambda (response) (run-hooks 'javadebugger-proxyStarted-functions )))
 
-(add-hook 'javadebugger-proxyStarted-hook (lambda ()
+(add-hook 'javadebugger-proxyStarted-functions (lambda ()
             (writeStringToBuffer proxyProcess "Debugger proxy started\n")))
 
 ;; threadDied
-(defvar javadebugger-threadDied-hook nil)
-(setq javadebugger-threadDied-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-threadDied-functions nil)
+(setq javadebugger-threadDied-functions ())
+(ht-set javadebug-response-functions
    javadebugger-threadDied-response
-   (lambda (response) (run-hook-with-args 'javadebugger-threadDied-hook  (-slice response 1 7))))
+   (lambda (response) (run-hook-with-args 'javadebugger-threadDied-functions  (-slice response 1 7))))
 
-;;(add-hook 'javadebugger-threadDied-hook (lambda ( tr)
+;;(add-functions 'javadebugger-threadDied-functions (lambda ( tr)
 
 ;; threadStarted
-(defvar javadebugger-threadStarted-hook nil)
-(setq javadebugger-threadStarted-hook ())
-(ht-set javadebug-response-hooks
+(defvar javadebugger-threadStarted-functions nil)
+(setq javadebugger-threadStarted-functions ())
+(ht-set javadebug-response-functions
    javadebugger-threadStarted-response
-   (lambda (response) (run-hook-with-args 'javadebugger-threadStarted-hook  (-slice response 1 7))))
+   (lambda (response) (run-hook-with-args 'javadebugger-threadStarted-functions  (-slice response 1 7))))
 
 ;; threadStarted
-;;(add-hook 'javadebugger-threadStarted-hook (lambda ( tr)
+;;(add-functions 'javadebugger-threadStarted-functionsn (lambda ( tr)
 
 (defun javadebugger-LocationString (l) (format "%s:%s %s" (locationFile l) (locationLineNumber l) (locationMethod l)))
 
