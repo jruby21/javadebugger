@@ -20,7 +20,7 @@
   "Major mode java debugger.")
 
 (defvar defaultThread "" "the last thread in which we had a breakpoint. use this thread if no thread number is specified in a command")
-(defvar defaultFrame  "" "the frame we examined")
+(defvar defaultFrame  0 "the frame we examined")
 
 #+END_SRC
 
@@ -717,7 +717,7 @@ we can get this, maybe not.
                                   (format
                                    "arguments,%s,%s,%s\n"
                                    defaultThread
-                                   defaultFrame
+                                   (number-to-string defaultFrame)
                                    (if (= (length c) 2) (nth 1 c) "*"))))
                                (list javadebugger-arguments-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
@@ -1139,7 +1139,7 @@ below.
                                   (format
                                    "locals,%s,%s,%s\n"
                                    defaultThread
-                                   defaultFrame
+                                   (number-to-string defaultFrame)
                                    (if (= (length c) 2) (nth 1 c) "*"))))
                                (list javadebugger-locals-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
@@ -1489,7 +1489,7 @@ below.
                                   (format
                                    "this,%s,%s\n"
                                    defaultThread,
-                                   defaultFrame)))
+                                   (number-to-string defaultFrame))))
                                (list  javadebugger-this-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
 (defvar javadebugger-this-functions nil)

@@ -4,7 +4,7 @@
 
 package com.github.jruby21.javadebugger;
 
-
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 
@@ -20,6 +20,7 @@ import com.sun.jdi.Method;
 import com.sun.jdi.ReferenceType;
 import com.sun.jdi.StackFrame;
 import com.sun.jdi.ThreadReference;
+import com.sun.jdi.Value;
 import com.sun.jdi.VirtualMachine;
 
 import com.sun.jdi.connect.AttachingConnector;
@@ -66,24 +67,24 @@ public class JavaDebuggerProxy
         HashMap<String, CommandDescription> keywords = new HashMap<String, CommandDescription>();
 
         keywords.put("access",    new CommandDescription(TOKEN.ACCESS, 3, "access  classname fieldname"));
-        keywords.put("arguments",  new CommandDescription(TOKEN.ARGUMENTS, 4, "arguments  thread-id frame-id variables"));
-        keywords.put("attach",     new CommandDescription(TOKEN.ATTACH, 3, "attach hostname port"));
-        keywords.put("back",        new CommandDescription(TOKEN.BACK, 2, "back thread-id"));
-        keywords.put("break",      new CommandDescription(TOKEN.BREAK, 3, "break class-name <line-number|method name>"));
-        keywords.put("breaks",     new CommandDescription(TOKEN.BREAKS, 1, "breaks"));
-        keywords.put("classes",    new CommandDescription(TOKEN.CLASSES, 1, "classes"));
-        keywords.put("clear",        new CommandDescription(TOKEN.CLEAR, 2, "clear breakpoint-number"));
-        keywords.put("catch",       new CommandDescription(TOKEN.CATCH, 2, "catch on|off"));
-        keywords.put("fields",       new CommandDescription(TOKEN.FIELDS, 2, "fields class-name"));
-        keywords.put("into",          new CommandDescription(TOKEN.INTO, 2, "back thread-id"));
-        keywords.put("locals",      new CommandDescription(TOKEN.LOCALS, 4, "locals  thread-id frame-id variables"));
+        keywords.put("arguments", new CommandDescription(TOKEN.ARGUMENTS, 4, "arguments  thread-id frame-id variables"));
+        keywords.put("attach",    new CommandDescription(TOKEN.ATTACH, 3, "attach hostname port"));
+        keywords.put("back",      new CommandDescription(TOKEN.BACK, 2, "back thread-id"));
+        keywords.put("break",     new CommandDescription(TOKEN.BREAK, 3, "break class-name <line-number|method name>"));
+        keywords.put("breaks",    new CommandDescription(TOKEN.BREAKS, 1, "breaks"));
+        keywords.put("classes",   new CommandDescription(TOKEN.CLASSES, 1, "classes"));
+        keywords.put("clear",     new CommandDescription(TOKEN.CLEAR, 2, "clear breakpoint-number"));
+        keywords.put("catch",     new CommandDescription(TOKEN.CATCH, 2, "catch on|off"));
+        keywords.put("fields",    new CommandDescription(TOKEN.FIELDS, 2, "fields class-name"));
+        keywords.put("into",      new CommandDescription(TOKEN.INTO, 2, "back thread-id"));
+        keywords.put("locals",    new CommandDescription(TOKEN.LOCALS, 4, "locals  thread-id frame-id variables"));
         keywords.put("modify",    new CommandDescription(TOKEN.MODIFY, 3, "modify  classname fieldname"));
-        keywords.put("next",         new CommandDescription(TOKEN.NEXT, 2, "back thread-id"));
-        keywords.put("prepare",  new CommandDescription(TOKEN.PREPARE, 2, "prepare main-class"));
-        keywords.put("quit",         new CommandDescription(TOKEN.QUIT, 1, "quit"));
-        keywords.put("run",          new CommandDescription(TOKEN.RUN, 1, "run"));
-        keywords.put("stack",       new CommandDescription(TOKEN.STACK, 2, "stack thread-id"));
-        keywords.put("this",          new CommandDescription(TOKEN.THIS, 3, "this thread-id frame-id"));
+        keywords.put("next",      new CommandDescription(TOKEN.NEXT, 2, "back thread-id"));
+        keywords.put("prepare",   new CommandDescription(TOKEN.PREPARE, 2, "prepare main-class"));
+        keywords.put("quit",      new CommandDescription(TOKEN.QUIT, 1, "quit"));
+        keywords.put("run",       new CommandDescription(TOKEN.RUN, 1, "run"));
+        keywords.put("stack",     new CommandDescription(TOKEN.STACK, 2, "stack thread-id"));
+        keywords.put("this",      new CommandDescription(TOKEN.THIS, 3, "this thread-id frame-id"));
         keywords.put("threads",   new CommandDescription(TOKEN.THREAD, 1, "threads"));
 
         debuggerOutput.output_proxyStarted( );
@@ -189,22 +190,7 @@ public class JavaDebuggerProxy
 
             case ARGUMENTS:
 
-                trr = getThreadReference(tokens [1]);
-                sf  = trr.frame(Integer.parseInt(tokens [2]));
-
-                refs = tokens [3].split("[.]");
-
-                debuggerOutput.output_arguments(tokens [1], tokens [2]);
-
-                for (LocalVariable lv : sf.visibleVariables()) {
-
-                    if (lv.isArgument() && (refs[0].equals("*") || refs[0].equals(lv.name()))) {
-
-                        debuggerOutput.output_variable(lv.name(), sf.getValue(lv), trr, refs);
-                    }
-                }
-
-                debuggerOutput.output_endargument();
+                localVariables(tokens [1], tokens [2], tokens [3], true);
                 break;
 
 
@@ -384,22 +370,7 @@ public class JavaDebuggerProxy
 
             case LOCALS:
 
-                 trr = getThreadReference(tokens [1]);
-                 sf  = trr.frame(Integer.parseInt(tokens [2]));
-
-                 refs = tokens [3].split("[.]");
-
-                 debuggerOutput.output_local(tokens [1], tokens [2]);
-
-                 for (LocalVariable lv : sf.visibleVariables()) {
-
-                     if (!lv.isArgument() && (refs[0].equals("*") || refs[0].equals(lv.name()))) {
-
-                         debuggerOutput.output_variable(lv.name(), sf.getValue(lv), trr, refs);
-                     }
-                 }
-
-                 debuggerOutput.output_endargument();
+                localVariables(tokens [1], tokens [2], tokens [3], false);
                  break;
 
 
@@ -521,6 +492,49 @@ public class JavaDebuggerProxy
         } catch (IndexOutOfBoundsException e) {
             debuggerOutput.output_error(e.getMessage());
         }
+    }
+
+
+    private void localVariables(String tok1, String tok2, String tok3, boolean isArgument)
+    {
+        if (isArgument) {debuggerOutput.output_arguments(tok1, tok2);
+        } else {
+            debuggerOutput.output_local(tok1, tok2);
+        }
+
+        try {
+            ThreadReference  tr = getThreadReference(tok1);
+            StackFrame             sf  = tr.frame(Integer.parseInt(tok2));
+            ArrayList<String> name = new ArrayList<String>();
+            ArrayList<Value>  val       = new ArrayList<Value>();
+
+            String [] refs = tok3.split("[.]");
+
+            // Why do we do this nonsense with the lists?  Because accessing the
+            // virtual machine to display the values can cause sf.getValue() to
+            // fail with a 'Thread has been resumed' error. So we do all the
+            // sf.getValue() calls before any display calls.
+
+            for (LocalVariable lv : sf.visibleVariables()) {
+
+                if (isArgument == lv.isArgument() && (refs[0].equals("*") || refs[0].equals(lv.name()))) {
+
+                    name.add(lv.name());
+                    val.add(sf.getValue(lv));
+                }
+            }
+
+            Iterator<String> iname = name.iterator();
+            Iterator<Value>  vname = val.iterator();
+
+            while (iname.hasNext()) {
+                debuggerOutput.output_variable(iname.next(), vname.next(), tr, refs);
+            }
+        } catch (IncompatibleThreadStateException e) {
+        } catch (AbsentInformationException e) {
+        }
+
+        debuggerOutput.output_endargument();
     }
 
     private void attach(String host, String port)  {
