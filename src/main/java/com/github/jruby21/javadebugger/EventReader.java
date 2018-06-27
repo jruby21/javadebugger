@@ -29,12 +29,12 @@ import java.io.PrintStream;
 
 class EventReader extends Thread
 {
-    private VirtualMachine    vm                            = null;
+    private VirtualMachine vm             = null;
     private DebuggerOutput debuggerOutput = null;
 
     public EventReader(VirtualMachine v, DebuggerOutput o)
     {
-        vm                         = v;
+        vm             = v;
         debuggerOutput = o;
     }
 
@@ -58,10 +58,10 @@ class EventReader extends Thread
                         } else if (event instanceof BreakpointEvent) {
                             BreakpointEvent bp = (BreakpointEvent) event;
                             debuggerOutput.output_breakpointEntered(((Integer) bp.request().getProperty(JavaDebuggerProxy.NumberProperty)).intValue(),
-                                                                 bp.thread(),
-                                                                 bp.location());
+                                                                    bp.thread(),
+                                                                    bp.location());
                         } else if (event instanceof ClassPrepareEvent) {
-                                debuggerOutput.output_classPrepared(((ClassPrepareEvent) event).referenceType().name());
+                            debuggerOutput.output_classPrepared(((ClassPrepareEvent) event).referenceType().name());
                             // In rare cases, this event may occur in a debugger
                             // system thread within the target VM. Debugger
                             // threads take precautions to prevent these events,

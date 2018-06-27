@@ -48,10 +48,11 @@ import java.util.Map;
 
 public class JavaDebuggerProxy
 {
-    public static final String NumberProperty = "breakpointNumber";
-    private VirtualMachine vm           = null;
+    public  static final String NumberProperty = "breakpointNumber";
+    private static       int    bpcount        = 0;
 
-    private int                         bpcount = 0;
+    private VirtualMachine vm             = null;
+    private int            pcount         = 0;
     private DebuggerOutput debuggerOutput = new DebuggerOutput(System.out);
 
     private enum TOKEN { ACCESS, ARGUMENTS, ATTACH, BACK, BREAK, BREAKS, CATCH, CLASSES, CLEAR, DONE, FIELDS, INTO, LOCALS, MODIFY, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
@@ -66,26 +67,26 @@ public class JavaDebuggerProxy
 
         HashMap<String, CommandDescription> keywords = new HashMap<String, CommandDescription>();
 
-        keywords.put("access",    new CommandDescription(TOKEN.ACCESS, 3, "access  classname fieldname"));
-        keywords.put("arguments", new CommandDescription(TOKEN.ARGUMENTS, 4, "arguments  thread-id frame-id variables"));
-        keywords.put("attach",    new CommandDescription(TOKEN.ATTACH, 3, "attach hostname port"));
-        keywords.put("back",      new CommandDescription(TOKEN.BACK, 2, "back thread-id"));
-        keywords.put("break",     new CommandDescription(TOKEN.BREAK, 3, "break class-name <line-number|method name>"));
-        keywords.put("breaks",    new CommandDescription(TOKEN.BREAKS, 1, "breaks"));
-        keywords.put("classes",   new CommandDescription(TOKEN.CLASSES, 1, "classes"));
-        keywords.put("clear",     new CommandDescription(TOKEN.CLEAR, 2, "clear breakpoint-number"));
-        keywords.put("catch",     new CommandDescription(TOKEN.CATCH, 2, "catch on|off"));
-        keywords.put("fields",    new CommandDescription(TOKEN.FIELDS, 2, "fields class-name"));
-        keywords.put("into",      new CommandDescription(TOKEN.INTO, 2, "back thread-id"));
-        keywords.put("locals",    new CommandDescription(TOKEN.LOCALS, 4, "locals  thread-id frame-id variables"));
-        keywords.put("modify",    new CommandDescription(TOKEN.MODIFY, 3, "modify  classname fieldname"));
-        keywords.put("next",      new CommandDescription(TOKEN.NEXT, 2, "back thread-id"));
-        keywords.put("prepare",   new CommandDescription(TOKEN.PREPARE, 2, "prepare main-class"));
-        keywords.put("quit",      new CommandDescription(TOKEN.QUIT, 1, "quit"));
-        keywords.put("run",       new CommandDescription(TOKEN.RUN, 1, "run"));
-        keywords.put("stack",     new CommandDescription(TOKEN.STACK, 2, "stack thread-id"));
-        keywords.put("this",      new CommandDescription(TOKEN.THIS, 3, "this thread-id frame-id"));
-        keywords.put("threads",   new CommandDescription(TOKEN.THREAD, 1, "threads"));
+        keywords.put("access",    new CommandDescription(TOKEN.ACCESS,    3, "access  classname fieldname"));
+        keywords.put("arguments", new CommandDescription(TOKEN.ARGUMENTS, 4, "arguments thread-id frame-id variables"));
+        keywords.put("attach",    new CommandDescription(TOKEN.ATTACH,    3, "attach hostname port"));
+        keywords.put("back",      new CommandDescription(TOKEN.BACK,      2, "back thread-id"));
+        keywords.put("break",     new CommandDescription(TOKEN.BREAK,     3, "break class-name <line-number|method name>"));
+        keywords.put("breaks",    new CommandDescription(TOKEN.BREAKS,    1, "breaks"));
+        keywords.put("classes",   new CommandDescription(TOKEN.CLASSES,   1, "classes"));
+        keywords.put("clear",     new CommandDescription(TOKEN.CLEAR,     2, "clear breakpoint-number"));
+        keywords.put("catch",     new CommandDescription(TOKEN.CATCH,     2, "catch on|off"));
+        keywords.put("fields",    new CommandDescription(TOKEN.FIELDS,    2, "fields class-name"));
+        keywords.put("into",      new CommandDescription(TOKEN.INTO,      2, "into thread-id"));
+        keywords.put("locals",    new CommandDescription(TOKEN.LOCALS,    4, "locals thread-id frame-id variables"));
+        keywords.put("modify",    new CommandDescription(TOKEN.MODIFY,    3, "modify  classname fieldname"));
+        keywords.put("next",      new CommandDescription(TOKEN.NEXT,      2, "next thread-id"));
+        keywords.put("prepare",   new CommandDescription(TOKEN.PREPARE,   2, "prepare main-class"));
+        keywords.put("quit",      new CommandDescription(TOKEN.QUIT,      1, "quit"));
+        keywords.put("run",       new CommandDescription(TOKEN.RUN,       1, "run"));
+        keywords.put("stack",     new CommandDescription(TOKEN.STACK,     2, "stack thread-id"));
+        keywords.put("this",      new CommandDescription(TOKEN.THIS,      3, "this thread-id frame-id"));
+        keywords.put("threads",   new CommandDescription(TOKEN.THREAD,    1, "threads"));
 
         debuggerOutput.output_proxyStarted( );
 
@@ -160,10 +161,10 @@ public class JavaDebuggerProxy
             case ACCESS:
 
                 try {
-                    Field                                             f       = getField(tokens [1], tokens [2]);
-                    AccessWatchpointRequest  w      = null;
+                    Field                   f = getField(tokens [1], tokens [2]);
+                    AccessWatchpointRequest w = null;
 
-                    for (AccessWatchpointRequest a :  vm.eventRequestManager().accessWatchpointRequests()) {
+                    for (AccessWatchpointRequest a : vm.eventRequestManager().accessWatchpointRequests()) {
 
                         if (a.field().equals(f)) {
 
@@ -243,8 +244,8 @@ public class JavaDebuggerProxy
                     break;
                 }
 
-                Location                                   bl  = locs.get(0);
-                BreakpointRequest              br  = null;
+                Location          bl = locs.get(0);
+                BreakpointRequest br = null;
 
                 for (BreakpointRequest b : vm.eventRequestManager().breakpointRequests())  {
 
@@ -266,30 +267,13 @@ public class JavaDebuggerProxy
 
             case BREAKS:
 
-                BreakpointRequest []           bps = new BreakpointRequest [500];
-
-                for (BreakpointRequest b : vm.eventRequestManager().breakpointRequests())  {
-                    bps [((Integer) b.getProperty(NumberProperty)).intValue()] = b;
-                }
-
-                debuggerOutput.output_breakpointList();
-
-                for (int i = 0; i != bps.length; i++)   {
-
-                    if (bps [i] != null && bps [i].isEnabled()) {
-
-                        debuggerOutput.output_integer(i);
-                        debuggerOutput.outputLocation(bps [i].location());
-                    }
-                }
-
-                debuggerOutput.outputEnd();
+                debuggerOutput.output_breakpointList(vm.eventRequestManager().breakpointRequests());
                 break;
 
 
             case CATCH:
-                boolean                      enable = tokens [1].equalsIgnoreCase("on");
-                ExceptionRequest  er         = null;
+                boolean          enable = tokens [1].equalsIgnoreCase("on");
+                ExceptionRequest er     = null;
 
                 for (ExceptionRequest e : vm.eventRequestManager().exceptionRequests())
 
@@ -332,22 +316,22 @@ public class JavaDebuggerProxy
 
             case CLEAR:
 
-                int                                               breakpointId     = Integer.parseInt(tokens [1]);
-                List<BreakpointRequest> bres                   = vm.eventRequestManager().breakpointRequests();
-                BreakpointRequest              toClear             = null;
+                int               breakpointId = -1;
 
-                for (BreakpointRequest b : bres)  {
-                    if (((Integer) b.getProperty(NumberProperty)).intValue() == breakpointId)  {
-                        toClear = b;
+                if (!tokens [1].equalsIgnoreCase("all")) {
+
+                    breakpointId = Integer.parseInt(tokens [1]);
+                }
+
+                for (BreakpointRequest b : vm.eventRequestManager().breakpointRequests()) {
+
+                    if (breakpointId == -1
+                        || ((Integer) b.getProperty(NumberProperty)).intValue() == breakpointId)  {
+                        b.disable();
                     }
                 }
 
-                if (toClear != null) {
-                    toClear.disable();
-                    debuggerOutput.output_breakpointCleared(breakpointId);
-                } else {
-                    debuggerOutput.output_error("no breakpoint number " + tokens [1]);
-                }
+                debuggerOutput.output_breakpointList(vm.eventRequestManager().breakpointRequests());
 
                 break;
 
@@ -371,13 +355,13 @@ public class JavaDebuggerProxy
             case LOCALS:
 
                 localVariables(tokens [1], tokens [2], tokens [3], false);
-                 break;
+                break;
 
 
             case MODIFY:
 
                 try {
-                    Field                                                        f = getField(tokens [1], tokens [2]);
+                    Field                          f = getField(tokens [1], tokens [2]);
                     ModificationWatchpointRequest  w = null;
 
                     for (ModificationWatchpointRequest m :  vm.eventRequestManager().modificationWatchpointRequests()) {
@@ -385,7 +369,7 @@ public class JavaDebuggerProxy
                         if (f.equals(m.field())) {
 
                          w = m;
-                          }
+                        }
                     }
 
                     if (w == null) {
@@ -503,12 +487,11 @@ public class JavaDebuggerProxy
         }
 
         try {
-            ThreadReference  tr = getThreadReference(tok1);
-            StackFrame             sf  = tr.frame(Integer.parseInt(tok2));
+            ThreadReference   tr   = getThreadReference(tok1);
+            StackFrame        sf   = tr.frame(Integer.parseInt(tok2));
             ArrayList<String> name = new ArrayList<String>();
-            ArrayList<Value>  val       = new ArrayList<Value>();
-
-            String [] refs = tok3.split("[.]");
+            ArrayList<Value>  val  = new ArrayList<Value>();
+            String []         refs = tok3.split("[.]");
 
             // Why do we do this nonsense with the lists?  Because accessing the
             // virtual machine to display the values can cause sf.getValue() to
@@ -517,7 +500,8 @@ public class JavaDebuggerProxy
 
             for (LocalVariable lv : sf.visibleVariables()) {
 
-                if (isArgument == lv.isArgument() && (refs[0].equals("*") || refs[0].equals(lv.name()))) {
+                if (isArgument == lv.isArgument()
+                    && (refs[0].equals("*") || refs[0].equals(lv.name()))) {
 
                     name.add(lv.name());
                     val.add(sf.getValue(lv));
@@ -539,11 +523,9 @@ public class JavaDebuggerProxy
 
     private void attach(String host, String port)  {
         try {
-            List<AttachingConnector> l = Bootstrap.virtualMachineManager().attachingConnectors();
-
             AttachingConnector ac = null;
 
-            for (AttachingConnector c: l) {
+            for (AttachingConnector c : Bootstrap.virtualMachineManager().attachingConnectors()) {
 
                 if (c.name().equals("com.sun.jdi.SocketAttach")) {
                     ac = c;
@@ -584,7 +566,7 @@ public class JavaDebuggerProxy
         if (tr != null)  {
 
             List<StepRequest> srl = vm.eventRequestManager().stepRequests();
-            StepRequest              sr  = null;
+            StepRequest       sr  = null;
 
             for (StepRequest s : srl)  {
 
@@ -632,9 +614,9 @@ public class JavaDebuggerProxy
     private Field getField(String className, String fieldName)
         throws ClassNotPreparedException
     {
-        for (ReferenceType r :  vm.classesByName(className)) {
+        for (ReferenceType r : vm.classesByName(className)) {
 
-            Field f  = r.fieldByName(fieldName);
+            Field f = r.fieldByName(fieldName);
 
             if (f != null) {
 
