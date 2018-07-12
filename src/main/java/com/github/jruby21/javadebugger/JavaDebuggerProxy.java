@@ -479,16 +479,17 @@ public class JavaDebuggerProxy
     }
 
 
-    private void localVariables(String tok1, String tok2, String tok3, boolean isArgument)
+    private void localVariables(String thread, String frame, String tok3, boolean isArgument)
     {
-        if (isArgument) {debuggerOutput.output_arguments(tok1, tok2);
+        if (isArgument) {
+            debuggerOutput.output_arguments(thread, frame);
         } else {
-            debuggerOutput.output_local(tok1, tok2);
+            debuggerOutput.output_local(thread, frame);
         }
 
         try {
-            ThreadReference   tr   = getThreadReference(tok1);
-            StackFrame        sf   = tr.frame(Integer.parseInt(tok2));
+            ThreadReference   tr   = getThreadReference(thread);
+            StackFrame        sf   = tr.frame(Integer.parseInt(frame));
             ArrayList<String> name = new ArrayList<String>();
             ArrayList<Value>  val  = new ArrayList<Value>();
             String []         refs = tok3.split("[.]");

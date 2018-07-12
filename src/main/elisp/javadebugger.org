@@ -838,34 +838,50 @@ Set a breakpoint in the target VM.
 (ht-set
  commandHashMap
  "break"
-   (javadebug-makeCommandHashEntry "break"
-                               (lambda (c) (/= (length c) 3))
-                               "break class-name <line-number|method name>"
-                               (lambda (proxy c)
-                                 (process-send-string
-                                  proxy
-                                  (format "break,%s,%s\n" (nth 1 c) (nth 2 c))))
-                               (list javadebugger-breakpointCreated-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+ (javadebug-makeCommandHashEntry
+  "break"
+  (lambda (c) (/= (length c) 3))
+  "break class-name <line-number|method name>"
+  (lambda (proxy c)
+    (process-send-string
+     proxy
+     (format "break,%s,%s\n" (nth 1 c) (nth 2 c))))
+  (list javadebugger-breakpointCreated-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
 (defvar javadebugger-breakpointCreated-functions nil)
 (setq javadebugger-breakpointCreated-functions ())
-(ht-set javadebug-response-functions
-   javadebugger-breakpointCreated-response
-   (lambda (response) (run-hook-with-args 'javadebugger-breakpointCreated-functions (nth 1 response) (-slice response 2 5))))
 
-(add-hook 'javadebugger-breakpointCreated-functions
-          (lambda ( breakId loc)
-            (writeStringToBuffer proc (concat "Breakpoint  " breakId " created at " (javadebugger-LocationString loc)  ".\n"))))
+(ht-set
+ javadebug-response-functions
+ javadebugger-breakpointCreated-response
+ (lambda (response)
+   (run-hook-with-args
+    'javadebugger-breakpointCreated-functions
+    (nth 1 response)
+    (-slice response 2 5))))
+
+(add-hook
+ 'javadebugger-breakpointCreated-functions
+ (lambda (breakId loc)
+   (writeStringToBuffer proc (concat "Breakpoint  " breakId " created at " (javadebugger-LocationString loc)  ".\n"))))
 
 (defvar javadebugger-breakpointEntered-functions nil)
 (setq javadebugger-breakpointEntered-functions ())
-(ht-set javadebug-response-functions
-   javadebugger-breakpointEntered-response
-   (lambda (response) (run-hook-with-args 'javadebugger-breakpointEntered-functions (nth 1 response) (-slice response 2 8) (-slice response 8))))
 
-(add-hook 'javadebugger-breakpointEntered-functions
-          (lambda ( breakId tr loc)
-            (reportBreak (concat "Breakpoint " breakId " entered") tr loc)))
+(ht-set
+ javadebug-response-functions
+ javadebugger-breakpointEntered-response
+ (lambda (response)
+   (run-hook-with-args
+    'javadebugger-breakpointEntered-functions
+    (nth 1 response)
+    (-slice response 2 8)
+    (-slice response 8))))
+
+(add-hook
+ 'javadebugger-breakpointEntered-functions
+ (lambda (breakId tr loc)
+   (reportBreak (concat "Breakpoint " breakId " entered") tr loc)))
 
 #+END_SRC
 

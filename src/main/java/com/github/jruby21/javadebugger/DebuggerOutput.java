@@ -476,12 +476,14 @@ class DebuggerOutput {
             List<Field>	  fld = ((ClassType) v.type()).allFields();
 
             out.print("(\"type\" \"" + v.type().name() + "\" )  ( \"fields\" ");
+            depth++;
 
             for (Field f : fld) {
 
-                if (depth >= refs.length || refs [depth].equals("*") || refs [depth].equals(f.name())) {
+                if (depth >= refs.length
+                    && (refs [depth].equals("*") || refs [depth].equals(f.name()))) {
                     out.print("( \"" + f.name() + "\" ");
-                    outputValue(((ObjectReference) v).getValue(f), tr, refs, depth++);
+                    outputValue(((ObjectReference) v).getValue(f), tr, refs, depth + 1);
                     out.print(" )");
                 }
             }
