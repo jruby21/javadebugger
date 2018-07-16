@@ -708,7 +708,6 @@ programming language code or by a Java Native Interface (JNI) get function.
  'javadebugger-accessWatchpointSet-functions (lambda ()
                                           (writeStringToBuffer proc (concat "Access watchpoint set.\n"))))
 
-
 (defconst
   javadebugger-accessWatchpoint-response
   "accesswatchpoint" "")
@@ -760,8 +759,12 @@ with a variable descriptor string.
       "arguments,%s,%s,%s\n"
       defaultThread
       (number-to-string defaultFrame)
-      (if (= (length c) 2) (nth 1 c) "*"))))
-  (list javadebugger-arguments-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+      (setDotNotation (if (= (length c) 2) (nth 1 c) "")))))
+  (list
+   javadebugger-arguments-response
+   javadebugger-error-response
+   javadebugger-internalException-response
+   javadebugger-exception-response)))
 
 (defvar javadebugger-arguments-functions nil)
 (setq   javadebugger-arguments-functions ())
@@ -1133,10 +1136,12 @@ Prints all the fields of a given class.
 
 (add-hook 'javadebugger-fields-functions
           (lambda (className fields)
+            (writeStringToBuffer proxyProcess (concat "Fields for class: " className "\n"))
             (writeOrgTableToBuffer
              proxyProcess
-             "|Class|Name|Type|Declaring Type|Enum|Transient|Volatile|Final|Static|\n"
-             (list className fields))))
+             "|Field |Type|Declaring Type|Enum|Transient|Volatile|Final|Static|\n"
+             orgTableSeperator
+             fields)))
 
 #+END_SRC
 
@@ -1258,7 +1263,7 @@ with a variable descriptor string.
       "locals,%s,%s,%s\n"
       defaultThread
       (number-to-string defaultFrame)
-      (if (= (length c) 2) (nth 1 c) "*"))))
+      (setDotNotation (if (= (length c) 2) (nth 1 c) "")))))
   (list javadebugger-locals-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
 (defvar javadebugger-locals-functions nil)
@@ -1627,10 +1632,15 @@ and default frame.
     (process-send-string
      proxy
      (format
-      "this,%s,%s\n"
+      "this,%s,%s,%s\n"
       defaultThread
-      (number-to-string defaultFrame))))
-  (list  javadebugger-this-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
+      (number-to-string defaultFrame)
+      (setDotNotation (if (= (length c) 2) (nth 1 c) "")))))
+  (list
+   javadebugger-this-response
+   javadebugger-error-response
+   javadebugger-internalException-response
+   javadebugger-exception-response)))
 
 (defvar javadebugger-this-functions nil)
 (setq javadebugger-this-functions ())
@@ -1788,5 +1798,12 @@ Decrement defaultFrame moving it closer to the current frame.
 ;;(add-functions 'javadebugger-threadStarted-functionsn (lambda ( tr)
 
 (defun javadebugger-LocationString (l) (format "%s:%s %s" (locationFile l) (locationLineNumber l) (locationMethod l)))
+
+
+(defun setDotNotation(a)
+  (setq a (s-trim a))
+  (let ((b (if (string= a "") () (-take 6 (s-split "[.]" a)))))
+    (while (< (length b) 6) (setq b (-snoc b "*")))
+    (s-join "." b)))
 
 #+END_SRC

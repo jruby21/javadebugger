@@ -129,7 +129,7 @@ class DebuggerOutput {
 
     public final void output_this (String thread, String frame, ObjectReference th, ThreadReference tr, String [] refs) {
         out.print(THIS_RESPONSE + "," + thread + "," + frame +",(");
-        outputValue(th, tr, refs, 1);
+        outputValue(th, tr, refs, 0);
         out.println(")");}
 
     public final void output_stepCreated ( ) {
@@ -150,17 +150,21 @@ class DebuggerOutput {
         out.println(PREPARINGCLASS_RESPONSE + "," + className);}
     public final void output_modificationWatchpoint( ObjectReference object, Field field, Value past, Value future, ThreadReference tr) {
         out.print(MODIFICATIONWATCHPOINT_RESPONSE + "," + object.referenceType().name() + "," + field.name() + ",(");
-        outputValue(past, tr, new String [0], 0);
+        outputSingleLevelValue(past, tr);
         out.print("),(");
-        outputValue(future, tr, new String [0], 0);
+        outputSingleLevelValue(future, tr);
         out.println(")");
     }
+
     public final void output_modificationWatchpointSet ( ) {
         out.println(MODIFICATIONWATCHPOINTSET_RESPONSE);}
+
     public final void output_log(String msg) {
         out.println("log," + msg); }
+
     public final void output_local(String thread, String frame) {
         out.print(LOCALS_RESPONSE +"," + thread + "," + frame +",("); }
+
     public final void output_fields (String cl, List<Field> fields) {
         out.print(FIELDS_RESPONSE + "," + cl);
          for (Field f : fields) {
@@ -178,10 +182,8 @@ class DebuggerOutput {
         out.print("," + (msgVal == null ? "" : msgVal.value()) + ",(");
 
         try {
-            outputValue(getValueOfSingleRemoteCall(re, "getStackTrace", e.thread()),
-                        e.thread(),
-                        new String [0],
-                        0);
+            outputSingleLevelValue(getValueOfSingleRemoteCall(re, "getStackTrace", e.thread()),
+                                   e.thread());
         } catch (InvalidTypeException ie) {
         } catch (ClassNotLoadedException ie) {
         } catch (IncompatibleThreadStateException ie) {
@@ -258,7 +260,7 @@ class DebuggerOutput {
 
     public final void output_accessWatchpoint ( ObjectReference object, Field field, Value value, ThreadReference tr) {
         out.print(ACCESSWATCHPOINT_RESPONSE + "," + object.referenceType().name() + "," + field.name() + ",(");
-        outputValue(value, tr, new String [0], 0);
+        outputSingleLevelValue(value, tr);
         out.println(")");
     }
 
@@ -375,9 +377,14 @@ class DebuggerOutput {
                   + tr.isSuspended());
     }
 
+    private void outputSingleLevelValue(Value v, ThreadReference tr) {
+        String [] refs = new String [] {"*"};
+        outputValue(v, tr, refs, 0);
+    }
+
     private void outputValue(Value v, ThreadReference tr, String [] refs, int depth) {
 
-        if (depth > 20) {
+        if (depth >= refs.length) {
             return;
         }
 
@@ -396,14 +403,16 @@ class DebuggerOutput {
         else if (v instanceof ThreadGroupReference) {
             out.print("unsupported value type,ThreadGroupReference");
         }
-        else if (v instanceof ThreadReference) {
-            out.print("unsupported value type,ThreadReference");
-        }
-        else if (v instanceof VoidValue) {
-            out.print("unsupported value type,VoidValue");
-        }
 
         // primitive value types
+
+        else if (v instanceof ThreadReference) {
+            out.print("\"" + Long.toString(((ThreadReference) v).uniqueID()) + "\"");
+        }
+
+        else if (v instanceof VoidValue) {
+            out.print("VoidValue");
+        }
 
         else if (v instanceof BooleanValue) {
             out.print("\"" + Boolean.toString(((BooleanValue) v).value()) + "\"");
@@ -436,7 +445,7 @@ class DebuggerOutput {
         // compound value types
 
         else if (v instanceof ArrayReference)  {
-            printArray((ArrayReference) v, "array", tr, refs, depth++);
+            printArray((ArrayReference) v, "array", tr, refs, depth);
         }
 
         else if ((v.type() instanceof ReferenceType) && (v.type() instanceof ClassType))  {
@@ -454,7 +463,7 @@ class DebuggerOutput {
                                    "list",
                                    tr,
                                    refs,
-                                   depth++);
+                                   depth);
                     } catch (InvalidTypeException e) {
                     } catch (ClassNotLoadedException e) {
                     } catch (IncompatibleThreadStateException e) {
@@ -466,7 +475,7 @@ class DebuggerOutput {
                 }
 
                 if (i.name().equals("java.util.Map")) {
-                    mapToString((ObjectReference) v, tr, refs, depth++);
+                    mapToString((ObjectReference) v, tr, refs, depth);
                     return;
                 }
             }
@@ -476,12 +485,10 @@ class DebuggerOutput {
             List<Field>	  fld = ((ClassType) v.type()).allFields();
 
             out.print("(\"type\" \"" + v.type().name() + "\" )  ( \"fields\" ");
-            depth++;
 
             for (Field f : fld) {
 
-                if (depth >= refs.length
-                    && (refs [depth].equals("*") || refs [depth].equals(f.name()))) {
+                if (refs [depth].equals("*") || refs [depth].equals(f.name())) {
                     out.print("( \"" + f.name() + "\" ");
                     outputValue(((ObjectReference) v).getValue(f), tr, refs, depth + 1);
                     out.print(" )");
@@ -498,38 +505,45 @@ class DebuggerOutput {
 
     private void  printArray(ArrayReference arrayReference, String ty, ThreadReference tr, String [] refs, int depth) {
 
-        out.print("( \"type\" \"" + ty + "\" ) ( \"size\"  \"" + Integer.toString(arrayReference.length()) + "\") ( \"contents\" ");
+        int size   = arrayReference.length();
+        int bottom = 0;
+        int top    = (20 > size) ? size : 20;
 
-        int [] bounds = arrayListBounds(arrayReference.length(), refs, depth);
+        out.print("( \"type\" \"" + ty + "\" ) ( \"size\"  \"" + size + "\") ( \"contents\" ");
 
-        for (int i = bounds [0]; i < bounds [1]; i++) {
+        if (!refs [depth].equals("*")) {
+
+            try {
+                String [] s = refs [depth].split("-");
+
+                if (s.length > 0) {
+                    bottom = Integer.parseInt(s [0]);
+                    if (bottom >= size) {
+                        bottom = size - 1;
+                    }
+                }
+
+                if (s.length > 1) {
+                    top = Integer.parseInt(s [1]);
+                    if (top > size) {
+                        top = size;
+                    }
+                } else {
+                    top = bottom + 1;
+                }
+            } catch (NumberFormatException e) {
+                bottom = 0;
+                top    = (20 > size) ? size : 20;
+            }
+        }
+
+        for (int i = bottom; i < top; i++) {
             out.print("( \"" + i + "\" ");
             outputValue(arrayReference.getValue(i), tr, refs, depth+1);
             out.print(")");
         }
 
         out.print(" ) ");
-    }
-
-    private int [] arrayListBounds(int length, String refs [], int depth)
-    {
-        int [] bounds = new int [2];
-
-        bounds [0] = 0;
-        bounds [1]  = (length  > 20 ? 20 : length);
-
-        try {
-            if (depth < refs.length) {
-                String [] s = refs [depth].split("-");
-                if (s.length > 0) {
-                    bounds [0] = Integer.parseInt(s [0]);
-                    bounds [1] = (s.length > 1) ?  Integer.parseInt(s [1]) : bounds [0] + 1;
-                }
-            }
-        } catch (NumberFormatException e) {
-        }
-
-        return bounds;
     }
 
     private void mapToString(ObjectReference mapReference, ThreadReference tr, String [] refs, int depth) {
@@ -550,7 +564,7 @@ class DebuggerOutput {
 
             ArrayList<Value> keys = new ArrayList<Value> ();
 
-            if (depth < refs.length)
+            if (!refs [depth].equals("*"))
 
                 {
                     for (String s : refs [depth].split(":")) {
@@ -594,7 +608,7 @@ class DebuggerOutput {
                 for (Value v : keys) {
 
                     out.print("( ");rparen++;
-                    outputValue(v, tr, new String [0], 0);
+                    outputSingleLevelValue(v, tr);
                     out.print(" ");
 
                     ArrayList<Value> keyList = new ArrayList<Value> ();
@@ -603,7 +617,7 @@ class DebuggerOutput {
                     outputValue(invokeRemoteMethod(mapReference, get, keyList, tr),
                                 tr,
                                 refs,
-                                depth++);
+                                depth + 1);
 
                     out.print(" )");rparen--;
                 }

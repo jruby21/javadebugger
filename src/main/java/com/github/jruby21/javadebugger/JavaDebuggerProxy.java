@@ -85,7 +85,7 @@ public class JavaDebuggerProxy
         keywords.put("quit",      new CommandDescription(TOKEN.QUIT,      1, "quit"));
         keywords.put("run",       new CommandDescription(TOKEN.RUN,       1, "run"));
         keywords.put("stack",     new CommandDescription(TOKEN.STACK,     2, "stack thread-id"));
-        keywords.put("this",      new CommandDescription(TOKEN.THIS,      3, "this thread-id frame-id"));
+        keywords.put("this",      new CommandDescription(TOKEN.THIS,      4, "this thread-id frame-id"));
         keywords.put("threads",   new CommandDescription(TOKEN.THREAD,    1, "threads"));
 
         debuggerOutput.output_proxyStarted( );
@@ -440,7 +440,7 @@ public class JavaDebuggerProxy
                                            tokens [2],
                                            trr.frame(Integer.parseInt(tokens [2])).thisObject(),
                                            trr,
-                                           tokens [2].split("[.]"));
+                                           tokens [3].split("[.]"));
 
                 break;
 
@@ -495,9 +495,10 @@ public class JavaDebuggerProxy
             String []         refs = tok3.split("[.]");
 
             // Why do we do this nonsense with the lists?  Because accessing the
-            // virtual machine to display the values can cause sf.getValue() to
-            // fail with a 'Thread has been resumed' error. So we do all the
-            // sf.getValue() calls before any display calls.
+            // virtual machine (in debuggerOutput.output_variable) to display
+            // the values can cause sf.getValue() to fail with a 'Thread has
+            // been resumed' error. So we do all the sf.getValue() calls before
+            // any display calls.
 
             for (LocalVariable lv : sf.visibleVariables()) {
 
