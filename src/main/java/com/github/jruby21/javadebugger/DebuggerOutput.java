@@ -255,8 +255,8 @@ class DebuggerOutput {
     public final void output_endargument() {
         out.println(")"); }
 
-    public final void output_accessWatchpointSet ( ) {
-        out.println(ACCESSWATCHPOINTSET_RESPONSE);}
+    public final void output_accessWatchpointSet (String cl, String fl ) {
+        out.println(ACCESSWATCHPOINTSET_RESPONSE + "," + cl + "," + fl); }
 
     public final void output_accessWatchpoint ( ObjectReference object, Field field, Value value, ThreadReference tr) {
         out.print(ACCESSWATCHPOINT_RESPONSE + "," + object.referenceType().name() + "," + field.name() + ",(");

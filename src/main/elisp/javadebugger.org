@@ -1,6 +1,63 @@
 * Java Debugger
+** Introduction
+
+JavadebugMode is a replacement for the combination of the GUD/JDP emacs mode and
+the Oracle command line debugger jdb. This combination will be refered to as jdb
+in what follows.
+
+JavadebugMode will seem familiar to anyone experienced with jdb. The commands
+are similar and the overall feeling is that of a command line program with an
+emacs mode as a front end.
+
+Its overall design is also similar to jdb. There is an elisp program which
+implements an emacs mode - in this case a minor mode called javadebug-mode
+derived from Org mode - and an proxy program written in JAVA which uses the JAVA
+JDI interface to communicate with the program to be debugged and stdin/stdout to
+communicate with the elisp program.
+
+JavadebugMode has certain advantages over jdb. For one, it works. For another,
+it is easy to install and configure. Also, JavadebugMode looks into variables;
+for example, instead of displaying the number of bins in a hash table it will
+show the key/value pairs in the table. It is easy to change or script the
+debugger in elisp. And the debugging session is kept in an org buffer which can
+be saved or exported as the user desires.
+
+The debugger is basicly four command streams and the code to handle them.
+
+The first command stream is the input from the user to the elisp program. The
+commands are seperated by newlines and each command is a series of ASCII tokens
+seperated by spaces. The first token in a line identifies the command and the
+rest of the tokens are arguments to that command. The first token is used as the
+key to a hash table (commandHashMap), the entry in the hash table describes the
+action to be taken on receipt of the command.
+
+The second command steam is output from the elisp program and read by the JAVA
+proxy on its standard input. The commands are seperated by newlines, each
+command is a series of ASCII tokens, seperated by commas. The first token names
+the command and is the key to a hash table identifying the action to be taken on
+receipt of the command. See the file JavaDebggerProxy.java.
+
+The third command stream is a queue of objects signalling asynchronous
+events. The stream is created by the JDI package and is read by an independent
+thread which waits on the queue and dequeues the events in sequence. See
+EventReader.java.
+
+The fourth command is produced by the JAVA proxy in response to commands from
+the elisp program and events from the JDI interface. The proxy writes this
+stream to its standard out and the elisp program receives it. The stream
+consists of commands seperated by newlines. Each command is a sequence of ASCII
+tokens seperated by commas. The first token identifies the command and is the
+key to a hash table (javadebug-response-functions) in the elisp program which
+describes the action to be taken on receipt of the command.
+
+There is some code in the elisp to display data read from the debugger proxy and
+some code in the debugger proxy to look inside of variables (DebuggerOutput.java).
+That's about it.
 
 ** javadebug mode
+
+The elisp program runs a mode name javadebug-mode. The mode is derived from ORG
+mode.
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el
 
@@ -428,7 +485,7 @@ runningCommand may have finished and it might be time to start another command.
               (let* ((response (mapcar 's-trim (split-string c ",")))
                      (responseHook (ht-get javadebug-response-functions (car response))))
                 (if (not responseHook)
-                    (message (concat "unknown response " response))
+                    (message (concat "unknown response " (car response)))
                   ;; well, who knows what came back
                   (condition-case err
                       (funcall responseHook response)
@@ -633,6 +690,7 @@ we can get this, maybe not.
 ** Commands and responses
 
 #+BEGIN_SRC emacs-lisp :tangle bugged.el#+BEGIN_SRC emacs-lisp :tangle bugged.el
+(defconst javadebugger-accessWatchpoint-response "accesswatchpoint" "")
 (defconst javadebugger-accessWatchpointSet-response "accesswatchpointset" "")
 (defconst javadebugger-arguments-response "arguments" "")
 (defconst javadebugger-breakpointCleared-response "breakpointcleared" "")
@@ -694,23 +752,22 @@ programming language code or by a Java Native Interface (JNI) get function.
       (nth 2 c))))
   (list javadebugger-accessWatchpointSet-response javadebugger-error-response javadebugger-internalException-response javadebugger-exception-response)))
 
-(defconst  javadebugger-accessWatchpointSet-response  "accesswatchpointset" "")
 (defvar javadebugger-accessWatchpointSet-functions nil)
 (setq javadebugger-accessWatchpointSet-functions ())
 
 (ht-set
  javadebug-response-functions
- 'javadebugger-accessWatchpointSet-response
+ javadebugger-accessWatchpointSet-response
  (lambda (response)
-   (run-hooks 'javadebugger-accessWatchpointSet-functions )))
+   (run-hook-with-args
+    'javadebugger-accessWatchpointSet-functions
+    (nth 1 response)
+    (nth 2 response))))
 
 (add-hook
- 'javadebugger-accessWatchpointSet-functions (lambda ()
-                                          (writeStringToBuffer proc (concat "Access watchpoint set.\n"))))
-
-(defconst
-  javadebugger-accessWatchpoint-response
-  "accesswatchpoint" "")
+ 'javadebugger-accessWatchpointSet-functions
+ (lambda (class field)
+   (writeStringToBuffer proc (concat "Access watchpoint set for field " field " in class " class ".\n"))))
 
 (defvar javadebugger-accessWatchpoint-functions nil)
 (setq javadebugger-accessWatchpoint-functions ())

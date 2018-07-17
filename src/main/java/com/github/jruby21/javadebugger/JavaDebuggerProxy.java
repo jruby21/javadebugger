@@ -164,22 +164,28 @@ public class JavaDebuggerProxy
                     Field                   f = getField(tokens [1], tokens [2]);
                     AccessWatchpointRequest w = null;
 
-                    for (AccessWatchpointRequest a : vm.eventRequestManager().accessWatchpointRequests()) {
+                    if (f == null) {
 
-                        if (a.field().equals(f)) {
+                        debuggerOutput.output_error("No field " + tokens [2] + " in class " + tokens [1] + ".");
+
+                    } else {
+
+                        for (AccessWatchpointRequest a : vm.eventRequestManager().accessWatchpointRequests()) {
+
+                            if (a.field().equals(f)) {
 
                                 w = a;
                             }
+                        }
+
+                        if (w == null) {
+
+                            w = vm.eventRequestManager().createAccessWatchpointRequest(f);
+                        }
+
+                        w.setEnabled(true);
+                        debuggerOutput.output_accessWatchpointSet(tokens [1], tokens [2]);
                     }
-
-                    if (w == null) {
-
-                        w = vm.eventRequestManager().createAccessWatchpointRequest(f);
-                    }
-
-                    w.setEnabled(true);
-                    debuggerOutput.output_accessWatchpointSet();
-
                 } catch (ClassNotPreparedException c) {
                     debuggerOutput.output_error("Class " + tokens [1] + " not prepared.");
                 } catch (UnsupportedOperationException e) {
@@ -364,22 +370,28 @@ public class JavaDebuggerProxy
                     Field                          f = getField(tokens [1], tokens [2]);
                     ModificationWatchpointRequest  w = null;
 
-                    for (ModificationWatchpointRequest m :  vm.eventRequestManager().modificationWatchpointRequests()) {
+                    if (f == null) {
 
-                        if (f.equals(m.field())) {
+                        debuggerOutput.output_error("No field " + tokens [2] + " in class " + tokens [1] + ".");
 
-                         w = m;
+                    } else {
+
+                        for (ModificationWatchpointRequest m :  vm.eventRequestManager().modificationWatchpointRequests()) {
+
+                            if (f.equals(m.field())) {
+
+                                w = m;
+                            }
                         }
+
+                        if (w == null) {
+
+                            w = vm.eventRequestManager().createModificationWatchpointRequest(f);
+                        }
+
+                        w.setEnabled(true);
+                        debuggerOutput.output_modificationWatchpointSet();
                     }
-
-                    if (w == null) {
-
-                        w = vm.eventRequestManager().createModificationWatchpointRequest(f);
-                    }
-
-                    w.setEnabled(true);
-                    debuggerOutput.output_modificationWatchpointSet();
-
                 } catch (ClassNotPreparedException c) {
                     debuggerOutput.output_error("Class " + tokens [1] + " not prepared.");
                 } catch (UnsupportedOperationException e) {
