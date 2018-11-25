@@ -1,0 +1,1626 @@
+\input texinfo    @c -*- texinfo -*-
+@c %**start of header
+@setfilename UsersManual.info
+@settitle
+@documentencoding UTF-8
+@documentlanguage en
+@c %**end of header
+
+@finalout
+@titlepage
+@title
+@author Jonathan Ruby
+@end titlepage
+
+@contents
+
+@ifnottex
+@node Top
+@top
+@end ifnottex
+
+@menu
+* JavadebugMode Users Manual::
+
+@detailmenu
+--- The Detailed Node Listing ---
+
+JavadebugMode Users Manual
+
+* Introduction::
+* Installation::
+* Configuration::
+* Running JavadebugMode::
+* JavadebugMode Buffers::
+* Displaying Values::
+* Scripting the Debugger::
+* Commands::
+
+
+
+
+
+
+Displaying Values
+
+* Commands Alone::
+* Commands Displaying a Single Variable::
+* Dot Notation::
+
+
+
+Scripting the Debugger
+
+* Command Sequences::
+* Elisp Scripts::
+
+
+
+Commands
+
+* defaultThread and defaultFrame::
+* access::
+* arguments::
+* attach::
+* back::
+* break::
+* breaks::
+* catch::
+* classes::
+* clear::
+* down::
+* fields::
+* help::
+* into::
+* locals::
+* next::
+* modify::
+* prepare::
+* quit::
+* run::
+* set::
+* stack::
+* this::
+* threads::
+* up::
+* wait::
+@end detailmenu
+@end menu
+
+@node JavadebugMode Users Manual
+@chapter JavadebugMode Users Manual
+
+@menu
+* Introduction::
+* Installation::
+* Configuration::
+* Running JavadebugMode::
+* JavadebugMode Buffers::
+* Displaying Values::
+* Scripting the Debugger::
+* Commands::
+@end menu
+
+@node Introduction
+@section Introduction
+
+JavadebugMode is a replacement for the combination of the GUD/JDP emacs mode and
+the Oracle command line debugger jdb. This combination will be refered to as jdb
+in what follows.
+
+JavadebugMode will seem familiar to anyone experienced with jdb. The commands
+are similar and the overall feeling is that of a command line program with an
+emacs mode as a front end.
+
+Its overall design is also similar to jdb. There is an elisp program which
+implements an emacs mode - in this case a minor mode called javadebug-mode
+derived from Org mode - and an proxy program written in JAVA which uses the JAVA
+JDI interface to communicate with the program to be debugged and stdin/stdout to
+communicate with the elisp program.
+
+JavadebugMode has certain advantages over jdb. For one, it works. For another,
+it is easy to install and configure. Also, JavadebugMode looks into variables;
+for example, instead of displaying the number of bins in a hash table it will
+show the key/value pairs in the table. It is easy to change or script the
+debugger in elisp. And the debugging session is kept in an org buffer which can
+be saved or exported as the user desires.
+
+@node Installation
+@section Installation
+
+JavadebugMode has two parts.
+
+First, an elisp script named javadebugMode.el which must be saved in a directory
+from which it can be loaded into emacs.
+
+Secondly, a JAVA program javadebuggerProxy which must be kept in a directory
+from which it can be executed.
+
+Put each part into an appropriate directory and JavadebugMode has been
+installed.
+
+@node Configuration
+@section Configuration
+
+JavadebugMode has one custom variable: javadebugger-proxy.
+
+This variable contains the command line to run the JAVA debugger proxy. For example:
+
+@lisp
+(defcustom javadebugger-proxy
+  "java -cp ~/javadebugger/src/main/java/com/github/jruby21/javadebugger/JavaDebuggerProxy:~/jdk1.8.0_131/lib/tools.jar com.github.jruby21.javadebugger.JavaDebuggerProxy"
+  "full command to run javadebugger proxy"
+  :type '(string)
+  :group 'javadebugger)
+@end lisp
+
+
+Change the command to point to the directory in which you have installed the JAVA
+debugger proxy. Try the command from the command line, like this:
+
+@example
+jruby@@jruby:$ java -cp /home/jruby/tmp/jdb/src/main/java:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar com.github.jruby21.javadebugger.JavaDebuggerProxy
+@end example
+
+You should see
+
+@example
+jruby@@jruby:$ java -cp /home/jruby/tmp/jdb/src/main/java:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar com.github.jruby21.javadebugger.JavaDebuggerProxy
+proxystarted
+@end example
+
+If you see the line ``proxystarted'' then everything is fine. Otherwise struggle
+with the class path until it works. Then set the value of javadebugger-proxy to the
+command string.  JavadebugMode is now configured.
+
+@node Running JavadebugMode
+@section Running JavadebugMode
+
+First, remember that you have to compile the target program with the -g switch
+set in the compilaton command line. Otherwise nothing will work.
+
+You have to start the target program with the right command line arguments so
+that the debugger proxy can attach to it with the JDI package. You also need to
+include tools.jar in the class path.
+
+The javadebugger proxy program will connect to the target program with a TCP/IP
+stream. You need to specify that this is the connecting mode with command line
+argument:
+
+@example
+-agentlib:jdwp=transport=dt_socket
+@end example
+
+The target process waits for a connection from the javadebugger proxy. It specifies
+the host name and port at which the proxy should connect, like this:
+
+@example
+address=hostname:port
+@end example
+
+The target process is waiting for a connection before it starts to run, as specified
+by these flags:
+
+@example
+server=y
+suspend=y
+@end example
+
+This works for me
+
+@example
+jruby@@jruby:$ java -cp ".:/home/jruby/tools/jdk1.8.0_131/lib/tools.jar" -agentlib:jdwp=transport=dt_socket,address=localhost:8000,server=y,suspend=y com.examplecompany.exampleclass
+@end example
+
+Make sure that the javadebugger elisp package has been loaded, something like
+
+@lisp
+(require 'javadebugger)
+@end lisp
+
+should work.
+
+Now do esc-x javadebugMode.
+
+You will get four questions in the minibuffer. Answer them. They are:
+
+@enumerate
+@item
+root of source tree:
+@end enumerate
+
+This is the directory path the debugger uses to find and display the source code
+for the current position. If the main class of the target program is
+com.examplecompany.exampleclass then use the file path of the directory
+containing the com directory.
+
+@enumerate
+@item
+main class
+@end enumerate
+
+This is the main class of the target program. When you run the target with the
+command ``java @dots{} com.examplecompany.exampleclass'' then this is
+``com.examplecompany.exampleclass''.
+
+@enumerate
+@item
+host
+@end enumerate
+
+The DNS name or IP address of the host on which the target program runs. The
+host name in the address value specified when running the target program, in the
+example above it was ``localhost''.
+
+@enumerate
+@item
+port number
+@end enumerate
+
+The port number in the address value specified when running the target
+program. In the example above it was 8000.
+
+The debugger proxy will start and attach to the target program. It will put a
+breakpoint at the start of the target program's main class and run until it hits that
+breakpoint.
+
+Now the EMACS window should divide in two, displaying the two debugger buffers.
+
+@node JavadebugMode Buffers
+@section JavadebugMode Buffers
+
+There are two buffers associated with a JavadebugMode session.
+
+@enumerate
+@item
+Source Buffer
+
+
+When the target program hits a breakpoint this buffer contains the code in which
+the program stopped, with the line on which it stopped highlighted.
+
+@item
+Debugger Buffer
+
+
+This buffer contains the commands sent to the debugger and the debuggers
+responses. The debugger has a text based interface and the text is contained in
+this buffer. The buffers name is unique and is formed from the target program's
+main class and a time stamp.
+
+The buffer is an org buffer since javadebuggerMode is a minor mode based on
+org. With a few exceptions, discussed below, the debugger buffer is an ordinary org
+buffer, you can write in it, save it to disk, export it, and so on. As the debugging
+session continues, new commands and responses are added to the bottom of the buffer.
+
+Here's what the buffer looks like:
+
+@example
+
+*** continue
+virtual machine resuming operation.
+
+** Breakpoint 0 entered in thread 1 at test/foo.java:12
+
+
+*** threads
+
+
+| ID | Name              | State   | Frames | Breakpoint | Suspended |
+|----+-------------------+---------+--------+------------+-----------|
+| 68 | Signal Dispatcher | running |      0 | false      | true      |
+| 69 | Finalizer         | waiting |      4 | false      | true      |
+| 70 | Reference Handler | waiting |      4 | false      | true      |
+|  1 | main              | running |      1 | true       | true      |
+@end example
+
+Commands and breakpoints are header outlines. This means that you can hide them
+which I find useful since otherwise the debugger buffer becomes enormous. Also,
+sometimes data is displayed in an org table.
+
+The debugger buffer has three peculiarities.
+
+First, the javadebugMode elisp program writes responses to commands and
+asynchronous notifications from the debugger proxy into the bottom of the buffer.
+
+Secondly, if the cursor is at the very end of the buffer and the user types a
+string of characters and a newline then the line of characters is treated as
+input to the debugger and as a command. So, to get the table of active threads
+seen above, I moved the point to the end of the buffer with an end-of-buffer
+command, typed the string ``threads'', and pressed the enter key.
+
+Third, the esc-p and esc-n key sequences have a special meaning. Both of them
+immediately move point to the end of the buffer and insert the previous or next
+command from the command history into the buffer.
+@end enumerate
+
+@node Displaying Values
+@section Displaying Values
+
+JavadebugMode has three commands to display values:
+
+@enumerate
+@item
+arguments - displays the arguments to a method,
+@item
+locals - displays the local values within a method, and
+@item
+this - displays the value of this.
+@end enumerate
+
+@menu
+* Commands Alone::
+* Commands Displaying a Single Variable::
+* Dot Notation::
+@end menu
+
+@node Commands Alone
+@subsection Commands Alone
+
+Each command on its own displays all arguments, all locals, or all fields of the
+object pointed to by 'this'.
+
+Say we have this code
+
+@lisp
+public int sum(foo f, int c, int d, int [] arr)
+@{
+    Inside i0 = new Inside(5);
+@end lisp
+
+and we stopped at a breakpoint in the method's first line and want to display
+the arguments to the method. Then we do this:
+
+@example
+
+*** arguments
+Arguments for thread 1 frame number 0.
+
+
+| Name | Value    |          |    |
+|------+----------+----------+----|
+| f    | type     | test.foo |    |
+|      | fields   |        a |  0 |
+|      |          |        b |  1 |
+| c    | 97       |          |    |
+| d    | 85       |          |    |
+| arr  | type     |    array |    |
+|      | size     |      100 |    |
+|      | contents |        0 |  0 |
+|      |          |        1 |  1 |
+|      |          |        2 |  2 |
+|      |          |        3 |  3 |
+|      |          |        4 |  4 |
+|      |          |        5 |  5 |
+|      |          |        6 |  6 |
+|      |          |        7 |  7 |
+|      |          |        8 |  8 |
+|      |          |        9 |  9 |
+|      |          |       10 | 10 |
+|      |          |       11 | 11 |
+|      |          |       12 | 12 |
+|      |          |       13 | 13 |
+|      |          |       14 | 14 |
+|      |          |       15 | 15 |
+|      |          |       16 | 16 |
+|      |          |       17 | 17 |
+|      |          |       18 | 18 |
+|      |          |       19 | 19 |
+
+
+@end example
+
+@node Commands Displaying a Single Variable
+@subsection Commands Displaying a Single Variable
+
+To display a single variable, type the command and then the variable name, as
+follows:
+
+@example
+*** arguments d
+
+Arguments for thread 1 frame number 0.
+
+
+| Name | Value |
+|------+-------|
+| d    |    85 |
+
+
+@end example
+
+@node Dot Notation
+@subsection Dot Notation
+
+The display differs from that of most editors in that it opens up
+variables. In the above example, arr is an array so the debugger
+shows the array's contents. By default, it will show the first 20
+values of the array but this can be changed with a dot
+notation.
+
+A variable name can be followed by one or more dot notations. The first
+qualifies the variable, the second the variable refered to by the first
+dot notation, the third the variable refered to by the second, and so on.
+
+The debugger stops after six levels in order to avoid loops.
+
+If a dot notation is missing at some level, the debugger understands the value
+to refer to all the entries in an array or all the keys in a hash table. A dot star
+('.*') has the same meaning. So if arr is an array of objects with a 'next' field
+then
+
+@lisp
+*** locals arr.*.next
+@end lisp
+
+
+refers to all the entries in the arr array and the values of their 'next' field.
+
+@enumerate
+@item
+Dot Notation for Objects
+
+
+When displaying an object, the debugger displays the fields of the object. If
+the fields of the object are objects it will display those objects and their
+fields. Things can get complicated.
+
+Let's look at this object:
+
+@lisp
+public class Node
+@{
+    public Node left;
+    public Node right;
+    int    id;
+
+    public Node(int d) @{ id = d; @}
+
+    public Node addLeft(int d) @{ left = new Node(d); return left; @}
+    public Node addRight(int d) @{ right = new Node(d); return right; @}
+@}
+@end lisp
+
+We can build and then display a tree of nodes with the following result:
+
+@example
+*** locals n
+Locals for thread 1 frame number 0.
+
+
+| Name | Value  |                |        |                |        |                |      |
+|------+--------+----------------+--------+----------------+--------+----------------+------|
+| n    | type   | test.tree.Node |        |                |        |                |      |
+|      | fields | left           | type   | test.tree.Node |        |                |      |
+|      |        |                | fields | left           | type   | test.tree.Node |      |
+|      |        |                |        |                | fields | left           | null |
+|      |        |                |        |                |        | right          | null |
+|      |        |                |        |                |        | id             | 3    |
+|      |        |                |        | right          | type   | test.tree.Node |      |
+|      |        |                |        |                | fields | left           | null |
+|      |        |                |        |                |        | right          | null |
+|      |        |                |        |                |        | id             | 4    |
+|      |        |                |        | id             | 2      |                |      |
+|      |        | right          | type   | test.tree.Node |        |                |      |
+|      |        |                | fields | left           | null   |                |      |
+|      |        |                |        | right          | type   | test.tree.Node |      |
+|      |        |                |        |                | fields | left           | null |
+|      |        |                |        |                |        | right          | null |
+|      |        |                |        |                |        | id             | 6    |
+|      |        |                |        | id             | 5      |                |      |
+|      |        | id             | 1      |                |        |                |      |
+
+@end example
+
+Suppose we only want to look at the nodes pointed to by the 'right' field of the root node. Then
+we do the following:
+
+
+@example
+*** locals n.right
+Locals for thread 1 frame number 0.
+
+
+| Name | Value  |                |        |                |        |                |      |
+|------+--------+----------------+--------+----------------+--------+----------------+------|
+| n    | type   | test.tree.Node |        |                |        |                |      |
+|      | fields | right          | type   | test.tree.Node |        |                |      |
+|      |        |                | fields | left           | null   |                |      |
+|      |        |                |        | right          | type   | test.tree.Node |      |
+|      |        |                |        |                | fields | left           | null |
+|      |        |                |        |                |        | right          | null |
+|      |        |                |        |                |        | id             | 6    |
+|      |        |                |        | id             | 5      |                |      |
+@end example
+
+Or, we can walk futher down the tree:
+
+@example
+*** locals n.right.right
+Locals for thread 1 frame number 0.
+
+
+| Name | Value  |                |        |                |        |                |      |
+|------+--------+----------------+--------+----------------+--------+----------------+------|
+| n    | type   | test.tree.Node |        |                |        |                |      |
+|      | fields | right          | type   | test.tree.Node |        |                |      |
+|      |        |                | fields | right          | type   | test.tree.Node |      |
+|      |        |                |        |                | fields | left           | null |
+|      |        |                |        |                |        | right          | null |
+|      |        |                |        |                |        | id             | 6    |
+@end example
+
+We can even do this:
+
+@example
+*** locals n.*.right
+Locals for thread 1 frame number 0.
+
+
+| Name | Value  |                |        |                |        |                |      |
+|------+--------+----------------+--------+----------------+--------+----------------+------|
+| n    | type   | test.tree.Node |        |                |        |                |      |
+|      | fields | left           | type   | test.tree.Node |        |                |      |
+|      |        |                | fields | right          | type   | test.tree.Node |      |
+|      |        |                |        |                | fields | left           | null |
+|      |        |                |        |                |        | right          | null |
+|      |        |                |        |                |        | id             | 4    |
+|      |        | right          | type   | test.tree.Node |        |                |      |
+|      |        |                | fields | right          | type   | test.tree.Node |      |
+|      |        |                |        |                | fields | left           | null |
+|      |        |                |        |                |        | right          | null |
+|      |        |                |        |                |        | id             | 6    |
+|      |        | id             | 1      |                |        |                |      |
+@end example
+
+@item
+Dot Notation for Arrays
+
+
+If the basic command (arguments, locals, or this) is followed by the array name,
+a dot, and two integers seperated by a hyphen: starting-ending, the debugger
+will display the elements of the array with an index between 'starting' and the
+index 'ending'. So, to show the fifth through eleven'th elements of the array
+arr we do this:
+
+
+@example
+** arguments arr.5-12
+Arguments for thread 1 frame number 0.
+
+
+| Name | Value    |       |    |
+|------+----------+-------+----|
+| arr  | type     | array |    |
+|      | size     |   100 |    |
+|      | contents |     5 |  5 |
+|      |          |     6 |  6 |
+|      |          |     7 |  7 |
+|      |          |     8 |  8 |
+|      |          |     9 |  9 |
+|      |          |    10 | 10 |
+|      |          |    11 | 11 |
+@end example
+
+If there is no dot, by default the debugger shows the first 20 elements of the array.
+
+@item
+Dot Notation for Lists
+
+
+Lists are treated in the same way as arrays. The debugger displays the elements
+of the list, by default the first twenty. Again, the dot hyphen notation can
+pick out elements of the list.
+
+So, given this code
+
+@lisp
+public List<String> showList() @{
+    ArrayList<String> as = new ArrayList<String>();
+
+    as.add("one");
+    as.add("two");
+    as.add("three");
+    as.add("four");
+    as.add("five");
+    return as;
+@}
+@end lisp
+
+if we stop at a breakpoint at the return statement we can do this:
+
+@example
+
+*** break test.foo 67
+Breakpoint  1 created at test/foo.java:67 showList.
+
+
+*** continue
+virtual machine resuming operation.
+
+** Breakpoint 1 entered in thread 1 at test/foo.java:67
+
+
+*** locals
+Locals for thread 1 frame number 0.
+
+
+| Name | Value    |      |       |
+|------+----------+------+-------|
+| as   | type     | list |       |
+|      | size     |    5 |       |
+|      | contents |    0 | one   |
+|      |          |    1 | two   |
+|      |          |    2 | three |
+|      |          |    3 | four  |
+|      |          |    4 | five  |
+@end example
+
+or we could do this to show just one entry in the list:
+
+@example
+*** locals as.2-3
+Locals for thread 1 frame number 0.
+
+
+| Name | Value    |      |       |
+|------+----------+------+-------|
+| as   | type     | list |       |
+|      | size     |    5 |       |
+|      | contents |    2 | three |
+
+@end example
+
+@item
+Dot Notation for Hash Tables
+
+
+Hash tables work similarly. The debugger will show the keys and values of
+hash table entries. Again, by default it shows twenty key/value pairs.
+
+Given this code
+
+@lisp
+public HashMap<String, String> showHash() @{
+    HashMap<String, String> hh = new HashMap<String, String>();
+
+    hh.put("key1", "value1");
+    hh.put("key2", "value2");
+    hh.put("key3", "value3");
+    hh.put("key4", "value4");
+    hh.put("key5", "value5");
+    return hh;
+@}
+@end lisp
+
+we can do this:
+
+@example
+** Breakpoint 2 entered in thread 1 at test/foo.java:78
+
+
+*** locals
+Locals for thread 1 frame number 0.
+
+
+| Name | Value    |      |        |
+|------+----------+------+--------|
+| hh   | type     | Map  |        |
+|      | size     | 5    |        |
+|      | contents | key1 | value1 |
+|      |          | key2 | value2 |
+|      |          | key5 | value5 |
+|      |          | key3 | value3 |
+|      |          | key4 | value4 |
+
+@end example
+
+The dot notation defines a key. Any key can be used on display, but only string
+keys can be used in the dot notation, as follows:
+
+@example
+*** locals hh.key3
+Locals for thread 1 frame number 0.
+
+
+| Name | Value    |      |        |
+|------+----------+------+--------|
+| hh   | type     | Map  |        |
+|      | size     | 5    |        |
+|      | contents | key3 | value3 |
+
+@end example
+
+@item
+Mixed Dot Notation
+
+
+If we have an array of objects each of which has a map as a field the debugger
+will unpack the array, the objects, and the hash maps. The first dot notation
+modifies the array, the second the object field, and the third the hash map.
+@end enumerate
+
+@node Scripting the Debugger
+@section Scripting the Debugger
+
+There are two ways to write scripts fot the debugger. The first is by
+sequentially combining debugger commands. The second is with elisp.
+
+@menu
+* Command Sequences::
+* Elisp Scripts::
+@end menu
+
+@node Command Sequences
+@subsection Command Sequences
+
+When entering a command at the bottom of the debugger buffer, it is possible to
+enter a series of commands by entering commands seperated by a semi colon, for
+example
+
+@example
+break com.example.main 233;continue
+@end example
+
+The debugger guarantees that a command will be not be executed before the
+previous commmand finishes. In the example above, the continue command will not
+run until the debugger proxy confirms that the breakpoint at
+com/example/main.java line 233 has been set.
+
+Sometimes this guarantee is not enough. For example:
+
+@example
+break com.example.main 233;continue;locals
+@end example
+
+In the above example the locals command will run immediately after the continue
+command finishes, not after the target program reaches the breakpoint at
+com/example/main.java line 233.
+
+We can change this with the wait command. In this example
+
+#+BEGIN@math{_EXAMPLEr}
+break com.example.main 233;continue;wait breakpoint;locals
+#+END@math{_EXAMPLEt}
+
+the debugger will not execute the locals command until the target program reaches
+a breakpoint. Not necessarily the beakpoint we want but any breakpoint. And the
+debugger will not execute any command until the breakpoint is reached.
+
+If you want to synchronize actions with breakpoints, it is probably better to
+use the second scripting method, elisp scripts.
+
+@node Elisp Scripts
+@subsection Elisp Scripts
+
+Using elisp scripts requires a bit of understanding of the debugger internals.
+
+The debugger proxy outputs messages to its standard out stream. The messages get
+picked up by an emacs process filter.  There is an emacs hook variable for every
+message from the debugger proxy. When the proxy filter receives a message it
+executes all the routines on that message's hook. To customize the debuogger's
+response to a message from the debugger proxy, just add a routine to that
+message's hook variable.
+
+For example, the hook for messages announcing a beakpoint is
+javadebugger-breakpointEntered-response. To add a new action to the receipt of a
+breakpoint message from the debugger proxy we create a new routine with the
+proper arguments for breakpoint messages and attach it to the hook. For example,
+
+@lisp
+(add-hook
+ 'javadebugger-breakpointEntered-functions
+ (lambda (breakId tr loc)
+   (if (= breakId 3)
+       (javadebug-add-commands (list "locals")))))
+@end lisp
+
+The breakpointentered message from the proxy was parsed and placed into the
+routine's different parameters. So the routine can check for a particular
+breakpoint. The call to javadebug-add-commands places a locals command on the
+command queue and the debugger will execute it in the near future. If you like,
+you can remove the function from the hook variable after the routine runs.
+
+All this can be accomplished by running elisp code, perhaps in the @strong{scratch}
+buffer, in the middle of a debugging session.
+
+@node Commands
+@section Commands
+
+The user sends commands to the debugger by entering the command at the very
+bottom of the javadebugMode buffer and then entering a new line.
+
+@menu
+* defaultThread and defaultFrame::
+* access::
+* arguments::
+* attach::
+* back::
+* break::
+* breaks::
+* catch::
+* classes::
+* clear::
+* down::
+* fields::
+* help::
+* into::
+* locals::
+* next::
+* modify::
+* prepare::
+* quit::
+* run::
+* set::
+* stack::
+* this::
+* threads::
+* up::
+* wait::
+@end menu
+
+@node defaultThread and defaultFrame
+@subsection defaultThread and defaultFrame
+
+Some commands
+
+arguments,
+down,
+locals,
+stack,
+this, and
+up
+
+refer to a thread and a stack frame. For example, locals displays the local
+variables relative to a certain frame in a certain thread.
+
+The thread and frame for a command are taken from two elisp variables:
+defaultFrame and defaultThread.
+
+These variables are set when the debugger encounters a breakpoint. The
+defaultThread variable is set to the thread in which the breakpoint occured and
+the defaultFrame variable is set to 0, denoting the top frame on the stack.
+
+The defaultFrame and defaultThread can be set explicitly with the up, down, and
+set commands.
+
+@node access
+@subsection access
+
+Set an access watchpoint.
+
+Request for notification when the contents of a field are accessed in the target
+VM. This event will be triggered when the specified field is accessed by Java
+programming language code or by a Java Native Interface (JNI) get function.
+
+access class-name field-name
+
+@example
+*** access test.foo a
+Access watchpoint set for field a in class test.foo.
+
+
+*** run
+virtual machine resuming operation.
+
+Access watchpoint
+
+
+| Class:Field | Value |
+|-------------+-------|
+| test.foo:a  |     0 |
+@end example
+
+@node arguments
+@subsection arguments
+
+Print the arguments to a method in the default frame in the default thread.
+
+By default prints all local variables but can specify the variables to print
+with a variable descriptor string.
+
+@example
+
+*** arguments
+Arguments for thread 1 frame number 0.
+
+
+| Name | Value    |          |    |
+|------+----------+----------+----|
+| f    | type     | test.foo |    |
+|      | fields   |        a |  0 |
+|      |          |        b |  1 |
+| c    | 97       |          |    |
+| d    | 85       |          |    |
+| arr  | type     |    array |    |
+|      | size     |      100 |    |
+|      | contents |        0 |  0 |
+|      |          |        1 |  1 |
+|      |          |        2 |  2 |
+|      |          |        3 |  3 |
+|      |          |        4 |  4 |
+|      |          |        5 |  5 |
+|      |          |        6 |  6 |
+|      |          |        7 |  7 |
+|      |          |        8 |  8 |
+|      |          |        9 |  9 |
+|      |          |       10 | 10 |
+|      |          |       11 | 11 |
+|      |          |       12 | 12 |
+|      |          |       13 | 13 |
+|      |          |       14 | 14 |
+|      |          |       15 | 15 |
+|      |          |       16 | 16 |
+|      |          |       17 | 17 |
+|      |          |       18 | 18 |
+|      |          |       19 | 19 |
+@end example
+
+@node attach
+@subsection attach
+
+Attach the debugger to the target VM.
+
+@example
+*** attach localhost 8000
+virtual machine created
+
+virtual machine started
+@end example
+
+@node back
+@subsection back
+
+Returns from the current method.
+
+@example
+** stack
+stack for thread 1
+
+
+|   | Frame | File          | Line | Method |
+|---+-------+---------------+------+--------|
+| * |     0 | test/foo.java |   93 | sum    |
+|   |     1 | test/foo.java |   50 | main   |
+
+
+*** back
+
+** step in thread 1 at test/foo.java:50
+
+*** stack
+Stack for thread 1
+
+
+|   | Frame | File          | Line | Method |
+|---+-------+---------------+------+--------|
+| * |     0 | test/foo.java |   50 | main   |
+
+@end example
+
+@node break
+@subsection break
+
+Set a breakpoint in the target VM.
+
+@example
+*** break test.foo 37
+Breakpoint  1 created at test/foo.java:37 main.
+@end example
+
+@node breaks
+@subsection breaks
+
+List breakpoints enabled in the target VM.
+
+@example
+*** breaks
+
+Breakpoints
+
+| id | location         |
+|----+------------------|
+|  0 | test/foo.java:13 |
+|  1 | test/foo.java:37 |
+|  2 | test/foo.java:50 |
+@end example
+
+@node catch
+@subsection catch
+
+Request notification when an exception occurs in the target VM.
+
+catch on/off
+
+@example
+*** catch on
+Exceptions enabled
+@end example
+
+@node classes
+@subsection classes
+
+Print all classes loaded in the target VM.
+
+@example
+*** classes
+classes
+boolean[]
+byte[]
+char[]
+double[]
+float[]
+int[]
+java.io.BufferedInputStream
+java.io.BufferedOutputStream
+java.io.BufferedReader
+java.io.BufferedWriter
+.
+.
+.
+test.foo
+test.tree.Node
+@end example
+
+@node clear
+@subsection clear
+
+Clear all breakpoints or the specified breakpoint.
+
+
+@example
+*** breaks
+Breakpoints
+
+| id | location         |
+|----+------------------|
+|  0 | test/foo.java:13 |
+|  1 | test/foo.java:37 |
+|  2 | test/foo.java:50 |
+
+*** clear 0
+Breakpoints
+
+| id | location         |
+|----+------------------|
+|  1 | test/foo.java:37 |
+|  2 | test/foo.java:50 |
+
+
+*** clear all
+Breakpoints
+
+| id | location |
+|----+----------|
+
+@end example
+
+@node down
+@subsection down
+
+Set the default frame to the frame directly below the current default frame.
+
+@example
+*** stack
+Stack for thread 1
+
+
+|   | Frame | File          | Line | Method   |
+|---+-------+---------------+------+----------|
+| * |     0 | test/foo.java |   63 | showList |
+|   |     1 | test/foo.java |   47 | main     |
+
+
+*** locals
+Locals for thread 1 frame number 0.
+
+
+| Name | Value    |      |     |
+|------+----------+------+-----|
+| as   | type     | list |     |
+|      | size     |    1 |     |
+|      | contents |    0 | one |
+
+
+*** down
+Stack for thread 1
+
+
+|   | Frame | File          | Line | Method   |
+|---+-------+---------------+------+----------|
+|   |     0 | test/foo.java |   63 | showList |
+| * |     1 | test/foo.java |   47 | main     |
+
+
+*** locals
+Locals for thread 1 frame number 1.
+
+
+| Name | Value    |                |        |                |        |                |      |
+|------+----------+----------------+--------+----------------+--------+----------------+------|
+| i    | 37       |                |        |                |        |                |      |
+| j    | 1        |                |        |                |        |                |      |
+| k    | 3        |                |        |                |        |                |      |
+| n    | type     | test.tree.Node |        |                |        |                |      |
+|      | fields   |           left |   type | test.tree.Node |        |                |      |
+|      |          |                | fields | left           | type   | test.tree.Node |      |
+|      |          |                |        |                | fields | left           | null |
+|      |          |                |        |                |        | right          | null |
+|      |          |                |        |                |        | id             | 3    |
+|      |          |                |        | right          | type   | test.tree.Node |      |
+|      |          |                |        |                | fields | left           | null |
+|      |          |                |        |                |        | right          | null |
+|      |          |                |        |                |        | id             | 4    |
+|      |          |                |        | id             | 2      |                |      |
+|      |          |          right |   type | test.tree.Node |        |                |      |
+|      |          |                | fields | left           | null   |                |      |
+|      |          |                |        | right          | type   | test.tree.Node |      |
+|      |          |                |        |                | fields | left           | null |
+|      |          |                |        |                |        | right          | null |
+|      |          |                |        |                |        | id             | 6    |
+|      |          |                |        | id             | 5      |                |      |
+|      |          |             id |      1 |                |        |                |      |
+| as   | type     |           list |        |                |        |                |      |
+|      | size     |              2 |        |                |        |                |      |
+|      | contents |              0 |    one |                |        |                |      |
+|      |          |              1 |    two |                |        |                |      |
+| hh   | type     |            Map |        |                |        |                |      |
+|      | size     |              2 |        |                |        |                |      |
+|      | contents |           key1 | value1 |                |        |                |      |
+|      |          |           key2 | value2 |                |        |                |      |
+| arr  | type     |          array |        |                |        |                |      |
+|      | size     |            100 |        |                |        |                |      |
+|      | contents |              0 |      0 |                |        |                |      |
+|      |          |              1 |      1 |                |        |                |      |
+|      |          |              2 |      2 |                |        |                |      |
+|      |          |              3 |      3 |                |        |                |      |
+|      |          |              4 |      4 |                |        |                |      |
+|      |          |              5 |      5 |                |        |                |      |
+|      |          |              6 |      6 |                |        |                |      |
+|      |          |              7 |      7 |                |        |                |      |
+|      |          |              8 |      8 |                |        |                |      |
+|      |          |              9 |      9 |                |        |                |      |
+|      |          |             10 |     10 |                |        |                |      |
+|      |          |             11 |     11 |                |        |                |      |
+|      |          |             12 |     12 |                |        |                |      |
+|      |          |             13 |     13 |                |        |                |      |
+|      |          |             14 |     14 |                |        |                |      |
+|      |          |             15 |     15 |                |        |                |      |
+|      |          |             16 |     16 |                |        |                |      |
+|      |          |             17 |     17 |                |        |                |      |
+|      |          |             18 |     18 |                |        |                |      |
+|      |          |             19 |     19 |                |        |                |      |
+| ff   | type     |       test.foo |        |                |        |                |      |
+|      | fields   |              a |      0 |                |        |                |      |
+|      |          |              b |      1 |                |        |                |      |
+@end example
+
+@node fields
+@subsection fields
+
+Prints all the fields of a given class.
+
+@example
+*** fields test.foo
+Fields for class: test.foo
+
+
+| Field | Type | Declaring Type | Enum  | Transient | Volatile | Final | Static |
+|-------+------+----------------+-------+-----------+----------+-------+--------|
+| a     | int  | test.foo       | false | false     | false    | false | false  |
+| b     | int  | test.foo       | false | false     | false    | false | false  |
+
+@end example
+
+@node help
+@subsection help
+
+Prints a short description of every debugger command.
+
+@node into
+@subsection into
+
+Execute a single step in the target VM, either to the next line or into a method
+call.
+
+@example
+
+*** stack
+Stack for thread 73
+
+
+|   | Frame | File          | Line | Method |
+|---+-------+---------------+------+--------|
+|   |     0 | test/foo.java |  114 | run    |
+
+
+*** into
+
+** step in thread 73 at test/foo.java:62
+
+
+*** stack
+Stack for thread 73
+
+
+|   | Frame | File          | Line | Method   |
+|---+-------+---------------+------+----------|
+| * |     0 | test/foo.java |   62 | showList |
+|   |     1 | test/foo.java |  114 | run      |
+
+@end example
+
+@node locals
+@subsection locals
+
+Prints the variables local to a method in the default frame in the default
+thread.
+
+By default prints all arguments but can specify the variables to print with a
+variable descriptor string.
+
+@example
+*** locals
+Locals for thread 1 frame number 0.
+
+
+| Name | Value  |                 |        |                 |        |          |   |
+|------+--------+-----------------+--------+-----------------+--------+----------+---|
+| i0   | type   | test.foo$Inside |        |                 |        |          |   |
+|      | fields | left            | type   | test.foo$Inside |        |          |   |
+|      |        |                 | fields | left            | null   |          |   |
+|      |        |                 |        | right           | null   |          |   |
+|      |        |                 |        | value           | 278    |          |   |
+|      |        |                 |        | this$0          | type   | test.foo |   |
+|      |        |                 |        |                 | fields | a        | 0 |
+|      |        |                 |        |                 |        | b        | 1 |
+|      |        | right           | type   | test.foo$Inside |        |          |   |
+|      |        |                 | fields | left            | null   |          |   |
+|      |        |                 |        | right           | null   |          |   |
+|      |        |                 |        | value           | 8      |          |   |
+|      |        |                 |        | this$0          | type   | test.foo |   |
+|      |        |                 |        |                 | fields | a        | 0 |
+|      |        |                 |        |                 |        | b        | 1 |
+|      |        | value           | 5      |                 |        |          |   |
+|      |        | this$0          | type   | test.foo        |        |          |   |
+|      |        |                 | fields | a               | 0      |          |   |
+|      |        |                 |        | b               | 1      |          |   |
+@end example
+
+@node next
+@subsection next
+
+Execute a single step in the target VM to the next line, stepping over a method
+if necessary.
+
+@example
+
+*** stack
+Stack for thread 73
+
+
+|   | Frame | File          | Line | Method   |
+|---+-------+---------------+------+----------|
+| * |     0 | test/foo.java |   62 | showList |
+|   |     1 | test/foo.java |  114 | run      |
+
+
+*** next
+
+** step in thread 73 at test/foo.java:64
+
+@end example
+
+@node modify
+@subsection modify
+
+Set a modification watchpoint.
+
+Request notification when a field is set. This event will be triggered when a
+value is assigned to the specified field with a Javatatement (assignment,
+increment, etc) or by a Java Native Interface (JNI) set function Setting a field
+to a value which is the same as the previous value still triggers this event
+
+modify class-name field-name
+
+@example
+
+*** modify test.foo b
+Modification watchpoint set.
+
+*** run
+virtual machine resuming operation.
+
+Modification watchpoint
+
+
+| Object:Field | When   | Value |
+|--------------+--------+-------|
+| test.foo:b   | Before |     0 |
+|              | After  |     1 |
+@end example
+
+@node prepare
+@subsection prepare
+
+Request notification when a class is prepared in the target VM.
+
+@example
+*** prepare test.foo
+Preparing class test.foo.
+
+
+*** wait classprepared
+virtual machine resuming operation.
+
+classprepared test.foo.
+
+
+*** break test.foo main
+classprepared test.foo.
+@end example
+
+@node quit
+@subsection quit
+
+End the debugging session.
+
+@example
+
+*** quit
+Debugger proxy exited
+
+@end example
+
+@node run
+@subsection run
+
+Start or resume program execution.
+
+@node set
+@subsection set
+
+Set the defaultThread which will be used by future commands. Use the 'threads'
+command to get a list of threads and their ids.
+
+@example
+*** stack
+Stack for thread 70
+
+
+|   | Frame | File          | Line | Method   |
+|---+-------+---------------+------+----------|
+| * |     0 | test/foo.java |   69 | showList |
+|   |     1 | test/foo.java |  114 | run      |
+
+
+*** threads
+
+
+| ID | Name              | State    | Frames | Breakpoint | Suspended |
+|----+-------------------+----------+--------+------------+-----------|
+| 70 | second thread     | running  |      2 | true       | true      |
+| 71 | Signal Dispatcher | running  |      0 | false      | true      |
+| 72 | Finalizer         | waiting  |      4 | false      | true      |
+| 73 | Reference Handler | waiting  |      4 | false      | true      |
+|  1 | main              | sleeping |      3 | false      | true      |
+
+
+*** set 1
+
+
+| ID | Name              | State    | Frames | Breakpoint | Suspended |
+|----+-------------------+----------+--------+------------+-----------|
+| 70 | second thread     | running  |      2 | true       | true      |
+| 71 | Signal Dispatcher | running  |      0 | false      | true      |
+| 72 | Finalizer         | waiting  |      4 | false      | true      |
+| 73 | Reference Handler | waiting  |      4 | false      | true      |
+|  1 | main              | sleeping |      3 | false      | true      |
+
+
+*** stack
+Stack for thread 1
+
+
+|   | Frame | File                  | Line | Method |
+|---+-------+-----------------------+------+--------|
+| * |     0 | java/lang/Thread.java |   -1 | sleep  |
+|   |     1 | test/foo.java         |   95 | sum    |
+|   |     2 | test/foo.java         |   49 | main   |
+@end example
+
+@node stack
+@subsection stack
+
+Print the stack of method calls which have brought us to this point.
+
+@example
+*** stack
+Stack for thread 1
+
+
+|   | Frame | File          | Line | Method   |
+|---+-------+---------------+------+----------|
+| * |     0 | test/foo.java |   63 | showList |
+|   |     1 | test/foo.java |   47 | main     |
+@end example
+
+@node this
+@subsection this
+
+Prints the object pointed to by the 'this' JAVA keyword in the default thread
+and default frame.
+
+@example
+*** this
+This for thread 1 frame number 0.
+
+
+| This   |          |   |
+|--------+----------+---|
+| type   | test.foo |   |
+| fields | a        | 0 |
+|        | b        | 1 |
+@end example
+
+@node threads
+@subsection threads
+
+Prints the running threads and their status.
+
+@example
+*** threads
+
+
+| ID | Name              | State   | Frames | Breakpoint | Suspended |
+|----+-------------------+---------+--------+------------+-----------|
+| 69 | Signal Dispatcher | running |      0 | false      | true      |
+| 70 | Finalizer         | waiting |      4 | false      | true      |
+| 71 | Reference Handler | waiting |      4 | false      | true      |
+|  1 | main              | running |      2 | true       | true      |
+@end example
+
+@node up
+@subsection up
+
+Decrement defaultFrame moving it closer to the current frame.
+
+@example
+*** stack
+Stack for thread 1
+
+
+|   | Frame | File          | Line | Method   |
+|---+-------+---------------+------+----------|
+| * |     0 | test/foo.java |   63 | showList |
+|   |     1 | test/foo.java |   47 | main     |
+
+
+*** locals
+Locals for thread 1 frame number 0.
+
+
+| Name | Value    |      |     |
+|------+----------+------+-----|
+| as   | type     | list |     |
+|      | size     |    1 |     |
+|      | contents |    0 | one |
+
+
+*** down
+Stack for thread 1
+
+
+|   | Frame | File          | Line | Method   |
+|---+-------+---------------+------+----------|
+|   |     0 | test/foo.java |   63 | showList |
+| * |     1 | test/foo.java |   47 | main     |
+
+
+*** locals
+Locals for thread 1 frame number 1.
+
+
+| Name | Value    |                |        |                |        |                |      |
+|------+----------+----------------+--------+----------------+--------+----------------+------|
+| i    | 37       |                |        |                |        |                |      |
+| j    | 1        |                |        |                |        |                |      |
+| k    | 3        |                |        |                |        |                |      |
+| n    | type     | test.tree.Node |        |                |        |                |      |
+|      | fields   |           left |   type | test.tree.Node |        |                |      |
+|      |          |                | fields | left           | type   | test.tree.Node |      |
+|      |          |                |        |                | fields | left           | null |
+|      |          |                |        |                |        | right          | null |
+|      |          |                |        |                |        | id             | 3    |
+|      |          |                |        | right          | type   | test.tree.Node |      |
+|      |          |                |        |                | fields | left           | null |
+|      |          |                |        |                |        | right          | null |
+|      |          |                |        |                |        | id             | 4    |
+|      |          |                |        | id             | 2      |                |      |
+|      |          |          right |   type | test.tree.Node |        |                |      |
+|      |          |                | fields | left           | null   |                |      |
+|      |          |                |        | right          | type   | test.tree.Node |      |
+|      |          |                |        |                | fields | left           | null |
+|      |          |                |        |                |        | right          | null |
+|      |          |                |        |                |        | id             | 6    |
+|      |          |                |        | id             | 5      |                |      |
+|      |          |             id |      1 |                |        |                |      |
+| as   | type     |           list |        |                |        |                |      |
+|      | size     |              2 |        |                |        |                |      |
+|      | contents |              0 |    one |                |        |                |      |
+|      |          |              1 |    two |                |        |                |      |
+| hh   | type     |            Map |        |                |        |                |      |
+|      | size     |              2 |        |                |        |                |      |
+|      | contents |           key1 | value1 |                |        |                |      |
+|      |          |           key2 | value2 |                |        |                |      |
+| arr  | type     |          array |        |                |        |                |      |
+|      | size     |            100 |        |                |        |                |      |
+|      | contents |              0 |      0 |                |        |                |      |
+|      |          |              1 |      1 |                |        |                |      |
+|      |          |              2 |      2 |                |        |                |      |
+|      |          |              3 |      3 |                |        |                |      |
+|      |          |              4 |      4 |                |        |                |      |
+|      |          |              5 |      5 |                |        |                |      |
+|      |          |              6 |      6 |                |        |                |      |
+|      |          |              7 |      7 |                |        |                |      |
+|      |          |              8 |      8 |                |        |                |      |
+|      |          |              9 |      9 |                |        |                |      |
+|      |          |             10 |     10 |                |        |                |      |
+|      |          |             11 |     11 |                |        |                |      |
+|      |          |             12 |     12 |                |        |                |      |
+|      |          |             13 |     13 |                |        |                |      |
+|      |          |             14 |     14 |                |        |                |      |
+|      |          |             15 |     15 |                |        |                |      |
+|      |          |             16 |     16 |                |        |                |      |
+|      |          |             17 |     17 |                |        |                |      |
+|      |          |             18 |     18 |                |        |                |      |
+|      |          |             19 |     19 |                |        |                |      |
+| ff   | type     |       test.foo |        |                |        |                |      |
+|      | fields   |              a |      0 |                |        |                |      |
+|      |          |              b |      1 |                |        |                |      |
+
+
+*** up
+Stack for thread 1
+
+
+|   | Frame | File          | Line | Method   |
+|---+-------+---------------+------+----------|
+| * |     0 | test/foo.java |   63 | showList |
+|   |     1 | test/foo.java |   47 | main     |
+
+
+*** locals
+Locals for thread 1 frame number 0.
+
+
+| Name | Value    |      |     |
+|------+----------+------+-----|
+| as   | type     | list |     |
+|      | size     |    1 |     |
+|      | contents |    0 | one |
+
+@end example
+
+@node wait
+@subsection wait
+
+For use in command lists. Pauses execution of commands in the list until a
+breakpoint is entered or a class is prepared.
+
+
+Now this is a fairly amusing command.
+
+It's entered like this:
+
+wait breakpointentered
+
+or
+
+wait classprepared.
+
+In the first case it sends a run command to the proxy and waits for a
+breakpointentered response. In the second, it sends a run command to the proxy
+and waits for a classprepared response.
+
+@bye
