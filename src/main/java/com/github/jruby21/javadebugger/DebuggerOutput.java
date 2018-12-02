@@ -1,6 +1,7 @@
 package com.github.jruby21.javadebugger;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -10,10 +11,12 @@ import com.sun.jdi.ArrayReference;
 import com.sun.jdi.ArrayType;
 import com.sun.jdi.BooleanType;
 import com.sun.jdi.BooleanValue;
+import com.sun.jdi.Bootstrap;
 import com.sun.jdi.ByteValue;
 import com.sun.jdi.CharValue;
 import com.sun.jdi.ClassLoaderReference;
 import com.sun.jdi.ClassNotLoadedException;
+import com.sun.jdi.ClassNotPreparedException;
 import com.sun.jdi.ClassObjectReference;
 import com.sun.jdi.ClassType;
 import com.sun.jdi.DoubleValue;
@@ -25,8 +28,8 @@ import com.sun.jdi.InterfaceType;
 import com.sun.jdi.InvalidStackFrameException;
 import com.sun.jdi.InvalidTypeException;
 import com.sun.jdi.InvocationException;
-import com.sun.jdi.Location;
 import com.sun.jdi.LocalVariable;
+import com.sun.jdi.Location;
 import com.sun.jdi.LongValue;
 import com.sun.jdi.Method;
 import com.sun.jdi.ObjectReference;
@@ -40,18 +43,48 @@ import com.sun.jdi.ThreadGroupReference;
 import com.sun.jdi.ThreadReference;
 import com.sun.jdi.Type;
 import com.sun.jdi.Value;
+import com.sun.jdi.VirtualMachine;
+import com.sun.jdi.VMDisconnectedException;
 import com.sun.jdi.VoidValue;
 
+import com.sun.jdi.connect.AttachingConnector;
+import com.sun.jdi.connect.Connector;
+import com.sun.jdi.connect.IllegalConnectorArgumentsException;
+
+import com.sun.jdi.event.AccessWatchpointEvent;
+import com.sun.jdi.event.BreakpointEvent;
+import com.sun.jdi.event.ClassPrepareEvent;
+import com.sun.jdi.event.ClassUnloadEvent;
+import com.sun.jdi.event.Event;
 import com.sun.jdi.event.ExceptionEvent;
+import com.sun.jdi.event.MethodEntryEvent;
+import com.sun.jdi.event.MethodExitEvent;
+import com.sun.jdi.event.ModificationWatchpointEvent;
+import com.sun.jdi.event.StepEvent;
+import com.sun.jdi.event.ThreadDeathEvent;
+import com.sun.jdi.event.ThreadStartEvent;
+import com.sun.jdi.event.VMDeathEvent;
+import com.sun.jdi.event.VMDisconnectEvent;
+import com.sun.jdi.event.VMStartEvent;
 
+import com.sun.jdi.request.AccessWatchpointRequest;
 import com.sun.jdi.request.BreakpointRequest;
+import com.sun.jdi.request.ClassPrepareRequest;
+import com.sun.jdi.request.EventRequest;
+import com.sun.jdi.request.ExceptionRequest;
+import com.sun.jdi.request.ModificationWatchpointRequest;
+import com.sun.jdi.request.StepRequest;
 
+import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-class DebuggerOutput {
+import java.util.concurrent.ArrayBlockingQueue;
+
+class DebuggerOutput extends Thread {
 
     private final static String ACCESSWATCHPOINT_RESPONSE          = "accesswatchpoint";
     private final static String ACCESSWATCHPOINTSET_RESPONSE       = "accesswatchpointset";
@@ -87,103 +120,715 @@ class DebuggerOutput {
     private final static String VMRESUMED_RESPONSE                 = "vmresumed";
     private final static String VMSTARTED_RESPONSE                 = "vmstarted";
 
-    PrintStream out = null;
+    private ArrayBlockingQueue<EventOrCommandObject> queue    = null;
+    private HashMap<String, CommandDescription>      keywords = null;
+    private PrintStream                              out      = null;
 
-    public DebuggerOutput(PrintStream o) {
-        out = o;
+    public  static final String NumberProperty = "breakpointNumber";
+    private static       int    bpcount        = 0;
+
+    private VirtualMachine vm             = null;
+    private int            pcount         = 0;
+
+    private enum TOKEN { ACCESS, ARGUMENTS, ATTACH, BACK, BREAK, BREAKS, CATCH, CLASSES, CLEAR, DONE, FIELDS, INTO, LOCALS, MODIFY, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
+
+    public DebuggerOutput(ArrayBlockingQueue<EventOrCommandObject> q, PrintStream o) {
+        out   = o;
+        queue = q;
+
+        keywords = new HashMap<String, CommandDescription>();
+
+        keywords.put("access",    new CommandDescription(TOKEN.ACCESS,    3, "access  classname fieldname"));
+        keywords.put("arguments", new CommandDescription(TOKEN.ARGUMENTS, 4, "arguments thread-id frame-id variables"));
+        keywords.put("attach",    new CommandDescription(TOKEN.ATTACH,    3, "attach hostname port"));
+        keywords.put("back",      new CommandDescription(TOKEN.BACK,      2, "back thread-id"));
+        keywords.put("break",     new CommandDescription(TOKEN.BREAK,     3, "break class-name <line-number|method name>"));
+        keywords.put("breaks",    new CommandDescription(TOKEN.BREAKS,    1, "breaks"));
+        keywords.put("classes",   new CommandDescription(TOKEN.CLASSES,   1, "classes"));
+        keywords.put("clear",     new CommandDescription(TOKEN.CLEAR,     2, "clear breakpoint-number"));
+        keywords.put("catch",     new CommandDescription(TOKEN.CATCH,     2, "catch on|off"));
+        keywords.put("fields",    new CommandDescription(TOKEN.FIELDS,    2, "fields class-name"));
+        keywords.put("into",      new CommandDescription(TOKEN.INTO,      2, "into thread-id"));
+        keywords.put("locals",    new CommandDescription(TOKEN.LOCALS,    4, "locals thread-id frame-id variables"));
+        keywords.put("modify",    new CommandDescription(TOKEN.MODIFY,    3, "modify  classname fieldname"));
+        keywords.put("next",      new CommandDescription(TOKEN.NEXT,      2, "next thread-id"));
+        keywords.put("prepare",   new CommandDescription(TOKEN.PREPARE,   2, "prepare main-class"));
+        keywords.put("quit",      new CommandDescription(TOKEN.QUIT,      1, "quit"));
+        keywords.put("run",       new CommandDescription(TOKEN.RUN,       1, "run"));
+        keywords.put("stack",     new CommandDescription(TOKEN.STACK,     2, "stack thread-id"));
+        keywords.put("this",      new CommandDescription(TOKEN.THIS,      4, "this thread-id frame-id"));
+        keywords.put("threads",   new CommandDescription(TOKEN.THREAD,    1, "threads"));
     }
 
-    public final void output_vmStarted ( ) {
-        out.println(VMSTARTED_RESPONSE);}
+    public void run() {
 
-    public final void output_vmResumed ( ) {
-        out.println(VMRESUMED_RESPONSE);}
+        out.println(PROXYSTARTED_RESPONSE);
 
-    public final void output_vmDisconnected ( ) {
-        out.println(VMDISCONNECTED_RESPONSE);}
-
-    public final void output_vmDied () {
-        out.println(VMDIED_RESPONSE);}
-
-    public final void output_vmCreated ( ) {
-        out.println(VMCREATED_RESPONSE);}
-
-    public final void output_variable(String name, Value value, ThreadReference tr, String [] refs) {
-        out.print("(\"" + name + "\" ");
-        outputValue(value, tr, refs, 1);
-        out.print(" ) ");
+        while (true) {
+            try {
+                queue.take().evaluate(this);
+            } catch (InterruptedException exc) {
+                    // Do nothing. Any changes will be seen at top of loop.
+        }
+    }
     }
 
-    public final void output_threadStarted (ThreadReference tr) {
-        out.print(THREADSTARTED_RESPONSE);
-        outputThreadReference(tr);
-        outputEnd();}
+    public void command(String s) {
 
-    public final void output_threadList ( ) {
-        out.print(THREADLIST_RESPONSE);}
+        if (s.isEmpty()) { return; }
 
-    public final void output_threadDied (ThreadReference tr) {
-        out.print(THREADDIED_RESPONSE);
-        outputThreadReference(tr);
-        outputEnd();}
+        String []          tokens  = s.split(",");
+        CommandDescription command = keywords.get(tokens [0].toLowerCase().trim());
 
-    public final void output_this (String thread, String frame, ObjectReference th, ThreadReference tr, String [] refs) {
-        out.print(THIS_RESPONSE + "," + thread + "," + frame +",(");
-        outputValue(th, tr, refs, 0);
-        out.println(")");}
+        if (command == null)  {
 
-    public final void output_stepCreated ( ) {
-        out.println(STEPCREATED_RESPONSE);}
+            output_error("unknown command :" + tokens [0]);
+            return;
+        }
 
-    public final void output_step ( ThreadReference tr, Location loc) {
-        out.print(STEP_RESPONSE);
-        outputThreadReference(tr);
-        outputLocation(loc);
-        outputEnd();}
-    public final void output_stack (String threadId ) {
-        out.print(STACK_RESPONSE + "," + threadId);}
-    public final void output_proxyStarted ( ) {
-        out.println(PROXYSTARTED_RESPONSE);}
-    public final void output_proxyExited ( ) {
-        out.println(PROXYEXITED_RESPONSE);}
-    public final void output_preparingClass (String className) {
-        out.println(PREPARINGCLASS_RESPONSE + "," + className);}
-    public final void output_modificationWatchpoint( ObjectReference object, Field field, Value past, Value future, ThreadReference tr) {
-        out.print(MODIFICATIONWATCHPOINT_RESPONSE + "," + object.referenceType().name() + "," + field.name() + ",(");
-        outputSingleLevelValue(past, tr);
-        out.print("),(");
-        outputSingleLevelValue(future, tr);
+        if (tokens.length != command.length)  {
+
+            output_error(command.format);
+            return;
+        }
+
+        for (int i = 0;
+             i != tokens.length;
+             i++)   {
+
+            tokens [i] = tokens [i].trim();
+
+            if (tokens [i].isEmpty())   {
+
+                output_error("field " + i + " in command is empty.");
+                return;
+            }
+        }
+
+        if (vm == null
+            && command.token != TOKEN.ATTACH
+            && command.token != TOKEN.QUIT) {
+
+            output_error("no virtual machine");
+            return;
+        }
+
+        try {
+            ThreadReference trr  = null;
+            StackFrame      sf   = null;
+            String []       refs = null;
+
+            switch (command.token)   {
+
+            case ACCESS:
+
+                Field f = getField(tokens [1], tokens [2]);
+
+                if (f == null) {
+
+                    output_error("No field " + tokens [2] + " in class " + tokens [1] + ".");
+
+                } else {
+
+                    AccessWatchpointRequest w = null;
+
+                    for (AccessWatchpointRequest a : vm.eventRequestManager().accessWatchpointRequests()) {
+
+                        if (a.field().equals(f)) {
+
+                            w = a;
+                        }
+                    }
+
+                    if (w == null) {
+
+                        w = vm.eventRequestManager().createAccessWatchpointRequest(f);
+                    }
+
+                    out.println(ACCESSWATCHPOINTSET_RESPONSE + "," + tokens [1] + "," + tokens [2]);
+                    w.setEnabled(true);
+                }
+
+                break;
+
+
+            case ARGUMENTS:
+
+                localVariables(tokens [1], tokens [2], tokens [3], true);
+                break;
+
+
+            case ATTACH:
+
+                attach(tokens [1], tokens [2]);
+                break;
+
+            case BACK:
+
+                step(tokens [1],
+                     StepRequest.STEP_LINE,
+                     StepRequest.STEP_OUT);
+
+                break;
+
+
+            case BREAK:
+
+                List<ReferenceType> classes = vm.classesByName(tokens [1]);
+
+                if (classes == null || classes.isEmpty())  {
+
+                    output_error("no class named " + tokens [1]);
+                    break;
+                }
+
+                // line number or method name
+
+                List<Location> locs = null;
+
+                if (tokens [2].matches("^\\d+$")) {
+
+                    locs = classes.get(0).locationsOfLine(Integer.parseInt(tokens [2]));
+
+                } else {
+
+                    List<Method> m = classes.get(0).methodsByName(tokens [2]);
+
+                    if (m == null || m.isEmpty()) {
+                        output_error("no method named " + tokens [2]);
+                        break;
+                    }
+
+                    locs = m.get(0).allLineLocations();
+                }
+
+                if (locs == null || locs.isEmpty())    {
+                    output_error("no line/method named " + tokens [2]);
+                    break;
+                }
+
+                Location          bl = locs.get(0);
+                BreakpointRequest br = null;
+
+                for (BreakpointRequest b : vm.eventRequestManager().breakpointRequests())  {
+
+                    if (bl.equals(b.location())) {
+                        br = b;
+                    }
+                }
+
+                if (br == null)   {
+                    br = vm.eventRequestManager().createBreakpointRequest(bl);
+                    br.putProperty(NumberProperty, new Integer(bpcount++));
+                }
+
+                br.enable();
+
+                out.print(BREAKPOINTCREATED_RESPONSE + "," + Integer.toString(((Integer) br.getProperty(NumberProperty)).intValue()));
+                outputLocation(bl);
+                out.print("\n");
+
+                break;
+
+
+            case BREAKS:
+
+                output_breakpointList(vm.eventRequestManager().breakpointRequests());
+                break;
+
+
+            case CATCH:
+                boolean          enable = tokens [1].equalsIgnoreCase("on");
+                ExceptionRequest er     = null;
+
+                for (ExceptionRequest e : vm.eventRequestManager().exceptionRequests())
+
+                    {
+                        if (e.exception() == null)
+
+                            er = e;
+                    }
+
+                if (er == null)
+
+                    {
+                        er = vm.eventRequestManager().createExceptionRequest(null, true, true);
+                    }
+
+                if (enable)
+
+                    {
+                        er.addClassFilter("test.*");
+                        er.enable();
+                        out.println(CATCHENABLED_RESPONSE + ",true");
+                    }
+
+                else
+
+                    {
+                        er.disable();
+                        out.println(CATCHENABLED_RESPONSE + ",false");
+                    }
+
+                break;
+
+
+            case CLASSES:
+
+                out.print(CLASSES_RESPONSE);
+
+                for (ReferenceType r : vm.allClasses()) {
+                    out.print("," + r.name());
+                }
+
+                out.print("\n");
+
+                break;
+
+
+
+            case CLEAR:
+
+                int  breakpointId = -1;
+
+                if (!tokens [1].equalsIgnoreCase("all")) {
+
+                    breakpointId = Integer.parseInt(tokens [1]);
+                }
+
+                for (BreakpointRequest b : vm.eventRequestManager().breakpointRequests()) {
+
+                    if (breakpointId == -1
+                        || ((Integer) b.getProperty(NumberProperty)).intValue() == breakpointId)  {
+                        b.disable();
+                    }
+                }
+
+                out.println(BREAKPOINTCLEARED_RESPONSE + "," + Integer.toString(breakpointId));
+                output_breakpointList(vm.eventRequestManager().breakpointRequests());
+
+                break;
+
+
+            case FIELDS:
+
+                for (ReferenceType r : vm.classesByName(tokens [1])) {
+                    output_fields(r.name(), r.allFields());
+                }
+
+                break;
+
+            case INTO:
+
+                step(tokens [1],
+                     StepRequest.STEP_LINE,
+                     StepRequest.STEP_INTO);
+
+                break;
+
+            case LOCALS:
+
+                localVariables(tokens [1], tokens [2], tokens [3], false);
+                break;
+
+
+            case MODIFY:
+
+                try {
+                    Field                          ff = getField(tokens [1], tokens [2]);
+                    ModificationWatchpointRequest  w  = null;
+
+                    if (ff == null) {
+
+                        output_error("No field " + tokens [2] + " in class " + tokens [1] + ".");
+
+                    } else {
+
+                        for (ModificationWatchpointRequest m :  vm.eventRequestManager().modificationWatchpointRequests()) {
+
+                            if (ff.equals(m.field())) {
+
+                                w = m;
+                            }
+                        }
+
+                        if (w == null) {
+
+                            w = vm.eventRequestManager().createModificationWatchpointRequest(ff);
+                        }
+
+                        w.setEnabled(true);
+                        out.println(MODIFICATIONWATCHPOINTSET_RESPONSE);
+                    }
+                } catch (ClassNotPreparedException c) {
+                    output_error("Class " + tokens [1] + " not prepared.");
+                } catch (UnsupportedOperationException e) {
+                    output_error("Virtual machine does not support modification watchpoints.");
+                }
+
+                break;
+
+            case NEXT:
+
+                step(tokens [1],
+                     StepRequest.STEP_LINE,
+                     StepRequest.STEP_OVER);
+
+                break;
+
+            case PREPARE:
+
+                ClassPrepareRequest r = vm.eventRequestManager().createClassPrepareRequest();
+                r.disable();
+                r.addClassFilter(tokens [1]);
+                r.setSuspendPolicy(EventRequest.SUSPEND_ALL);
+                r.enable();
+                out.println(PREPARINGCLASS_RESPONSE + "," + tokens [1]);
+                break;
+
+            case QUIT:
+
+                out.println(PROXYEXITED_RESPONSE);
+                out.flush();
+                out.close();
+                vm.exit(0);
+                System.exit(0);
+                break;
+
+            case RUN:
+
+                out.println(VMRESUMED_RESPONSE);
+                vm.resume();
+                break;
+
+
+            case STACK:
+
+                out.print(STACK_RESPONSE + "," + tokens [1]);
+
+                for (StackFrame sfp : getThreadReference(tokens [1]).frames()) {
+
+                    outputLocation(sfp.location());
+                }
+
+                out.print("\n");
+                break;
+
+
+            case THIS:
+
+                trr = getThreadReference(tokens[1]);
+                out.println(THIS_RESPONSE + ","
+                            + tokens [1] + ","
+                            + tokens [2] +",("
+                            + outputValue(trr.frame(Integer.parseInt(tokens [2])).thisObject(),
+                                          trr,
+                                          tokens [3].split("[.]"), 0)
+                            +")");
+                break;
+
+
+            case THREAD:
+
+                out.print(THREADLIST_RESPONSE);
+
+                for (ThreadReference tr : vm.allThreads()) {
+                    outputThreadReference(tr);
+                }
+
+                out.print("\n");
+
+                break;
+
+
+            default:
+                output_error("unknown command :" + tokens [0]);
+                break;
+            }
+        } catch (AbsentInformationException e) {
+            output_error(e.getMessage());
+        } catch (ClassNotPreparedException e) {
+            output_error(e.getMessage());
+        } catch (IncompatibleThreadStateException e) {
+            output_error(e.getMessage());
+        } catch (InvalidStackFrameException e) {
+            output_error(e.getMessage());
+        } catch (IllegalArgumentException e) {
+            output_error(e.getMessage());
+        } catch (IndexOutOfBoundsException e) {
+            output_error(e.getMessage());
+        } catch (UnsupportedOperationException e) {
+            output_error("Virtual machine does not support access watchpoints.");
+        } catch (Throwable t) {
+            output_internalException(t);
+        }
+    }
+
+    private void localVariables(String thread, String frame, String tok3, boolean isArgument) throws IncompatibleThreadStateException, AbsentInformationException
+    {
+        ThreadReference   tr   = getThreadReference(thread);
+        StackFrame        sf   = tr.frame(Integer.parseInt(frame));
+        ArrayList<String> name = new ArrayList<String>();
+        ArrayList<Value>  val  = new ArrayList<Value>();
+        String []         refs = tok3.split("[.]");
+
+        // Why do we do this nonsense with the lists?  Because accessing the
+        // virtual machine (in debuggerOutput.output_variable) to display
+        // the values can cause sf.getValue() to fail with a 'Thread has
+        // been resumed' error. So we do all the sf.getValue() calls before
+        // any display calls.
+
+        for (LocalVariable lv : sf.visibleVariables()) {
+
+            if (isArgument == lv.isArgument()
+                && (refs[0].equals("*") || refs[0].equals(lv.name()))) {
+
+                name.add(lv.name());
+                val.add(sf.getValue(lv));
+            }
+        }
+
+        out.print(((isArgument) ? ARGUMENTS_RESPONSE : LOCALS_RESPONSE) + ","
+                  + thread + ","
+                  + frame + ",(");
+
+        Iterator<String> itn = name.iterator();
+        Iterator<Value>  itv = val.iterator();
+
+        while (itn.hasNext()) {
+            out.print("(\"" + itn.next() + "\" " + outputValue(itv.next(), tr, refs, 1) + " ) ");
+        }
+
         out.println(")");
     }
 
-    public final void output_modificationWatchpointSet ( ) {
-        out.println(MODIFICATIONWATCHPOINTSET_RESPONSE);}
+    private void attach(String host, String port)  {
+        try {
+            AttachingConnector ac = null;
+
+            for (AttachingConnector c : Bootstrap.virtualMachineManager().attachingConnectors()) {
+
+                if (c.name().equals("com.sun.jdi.SocketAttach")) {
+                    ac = c;
+                    break;
+                }
+            }
+
+            if (ac == null)  {
+
+                output_error("unable to locate ProcessAttachingConnector");
+                return;
+            }
+
+            Map<String,Connector.Argument> env = ac.defaultArguments();
+
+            env.get("hostname").setValue(host);
+            env.get("port").setValue(port);
+
+            vm = ac.attach(env);
+
+            if (vm == null) {
+
+                output_error("failed to create virtual machine");
+
+            } else {
+                new EventReader(queue, vm).start();
+                out.println(VMCREATED_RESPONSE);
+            }
+        } catch (IOException | IllegalConnectorArgumentsException e) {
+            output_internalException(e);
+        }
+    }
+
+    private void step(String threadId, int size, int depth)  {
+
+        ThreadReference tr = getThreadReference(threadId);
+
+        if (tr != null)  {
+
+            List<StepRequest> srl = vm.eventRequestManager().stepRequests();
+            StepRequest       sr  = null;
+
+            for (StepRequest s : srl)  {
+
+                if (s.thread()   == tr
+                    && s.size()  == size
+                    && s.depth() == depth)
+
+                    sr = s;
+            }
+
+            if (sr == null)  {
+
+                sr = vm.eventRequestManager().createStepRequest(tr, size, depth);
+
+                sr.addClassExclusionFilter("java.*");
+                sr.addClassExclusionFilter("sun.*");
+                sr.addClassExclusionFilter("com.sun.*");
+            }
+
+            if (sr != null)  {
+                out.println(STEPCREATED_RESPONSE);
+                sr.addCountFilter(1);
+                sr.enable();
+                vm.resume();
+            } else {
+                output_error("step creation failed");
+            }
+        }
+    }
+
+    private ThreadReference getThreadReference(String id)
+        throws NumberFormatException, IllegalArgumentException
+    {
+        long tid = Long.parseLong(id);
+
+        for (ThreadReference tr: vm.allThreads()) {
+            if (tr.uniqueID() == tid) {
+                return tr;
+            }
+        }
+
+        throw new IllegalArgumentException("no thread with id " + id);
+    }
+
+    private Field getField(String className, String fieldName)
+        throws ClassNotPreparedException
+    {
+        for (ReferenceType r : vm.classesByName(className)) {
+
+            Field f = r.fieldByName(fieldName);
+
+            if (f != null) {
+
+                return f;
+            }
+        }
+
+        return null;
+    }
+
+    public void event(Event event) {
+        try {
+            if (event instanceof AccessWatchpointEvent) {
+                AccessWatchpointEvent ae = (AccessWatchpointEvent) event;
+                String                s  = outputSingleLevelValue(ae.valueCurrent(), ae.thread());
+                out.println(ACCESSWATCHPOINT_RESPONSE + ","
+                            + ae.object().referenceType().name() + ","
+                            + ae.field().name()
+                            + ",(" + s + ")");
+            } else if (event instanceof BreakpointEvent) {
+                BreakpointEvent bp = (BreakpointEvent) event;
+                out.print(BREAKPOINTENTERED_RESPONSE + ","
+                          + Integer.toString(((Integer) bp.request().getProperty(NumberProperty)).intValue()));
+                outputThreadReference(bp.thread());
+                outputLocation(bp.location());
+                out.print("\n");
+            } else if (event instanceof ClassPrepareEvent) {
+
+                // In rare cases, this event may occur in a debugger
+                // system thread within the target VM. Debugger
+                // threads take precautions to prevent these events,
+                // but they cannot be avoided under some conditions,
+                // especially for some subclasses of Error. If the
+                // event was generated by a debugger system thread,
+                // the value returned by this method is null, and if
+                // the requested suspend policy for the event was
+                // EventRequest.SUSPEND_EVENT_THREAD, all threads
+                // will be suspended instead, and the
+                // EventSet.suspendPolicy() will reflect this
+                // change.
+
+                // Note that the discussion above does not apply to
+                // system threads created by the target VM during its
+                // normal (non-debug) operation.
+
+                if (((ClassPrepareEvent) event).thread() != null) {
+                    out.println(CLASSPREPARED_RESPONSE + "," + ((ClassPrepareEvent) event).referenceType().name());
+                } else {
+                    ((ClassPrepareRequest) event.request()).enable();
+                    vm.resume();
+                }
+            } else if (event instanceof ClassUnloadEvent) {
+                out.println(CLASSUNLOADED_RESPONSE + ","
+                            + ((ClassUnloadEvent) event).className());
+            } else if (event instanceof ExceptionEvent)   {
+                output_exception((ExceptionEvent) event);
+            } else if (event instanceof MethodEntryEvent) {
+                ;
+            } else if (event instanceof MethodExitEvent) {
+                ;
+            } else if (event instanceof ModificationWatchpointEvent) {
+                ModificationWatchpointEvent me = (ModificationWatchpointEvent) event;
+                String                      p  = outputSingleLevelValue(me.valueCurrent(), me.thread());
+                String                      f  = outputSingleLevelValue(me.valueToBe(),    me.thread());
+
+                out.println(MODIFICATIONWATCHPOINT_RESPONSE + "," + me.object().referenceType().name() + "," + me.field().name() + ",("
+                            + p
+                            + "),("
+                            + f
+                            + ")");
+            } else if (event instanceof StepEvent) {
+                StepEvent se = (StepEvent) event;
+                out.print(STEP_RESPONSE);
+                outputThreadReference(se.thread());
+                outputLocation(se.location());
+                out.print("\n");
+                se.request().disable();
+            } else if (event instanceof ThreadStartEvent) {
+                out.print(THREADSTARTED_RESPONSE);
+                outputThreadReference(((ThreadStartEvent) event).thread());
+                out.print("\n");
+            } else if (event instanceof ThreadDeathEvent) {
+                out.print(THREADDIED_RESPONSE);
+                outputThreadReference(((ThreadDeathEvent) event).thread());
+                out.print("\n");
+            } else if (event instanceof VMDeathEvent)   {
+                out.println(VMDIED_RESPONSE);
+            } else if (event instanceof VMDisconnectEvent)   {
+                out.println(VMDISCONNECTED_RESPONSE);
+            } else if (event instanceof VMStartEvent) {
+                out.println(VMSTARTED_RESPONSE);
+            } else {
+                ;
+            }
+        } catch (VMDisconnectedException d) {
+            out.println(VMDISCONNECTED_RESPONSE);
+        }
+    }
 
     public final void output_log(String msg) {
-        out.println("log," + msg); }
-
-    public final void output_local(String thread, String frame) {
-        out.print(LOCALS_RESPONSE +"," + thread + "," + frame +",("); }
+        out.println("log,\"" + msg + "\""); }
 
     public final void output_fields (String cl, List<Field> fields) {
         out.print(FIELDS_RESPONSE + "," + cl);
-         for (Field f : fields) {
-             outputField(f);
-         }
-         out.print("\n");
+
+        for (Field f : fields) {
+
+            if (f != null) {
+
+                out.print("," + f.name()
+                          + "," + f.typeName()
+                          + "," + f.declaringType().name()
+                          + "," + f.isEnumConstant()
+                          + "," + f.isTransient()
+                          + "," + f.isVolatile()
+                          + "," + f.isFinal()
+                          + "," + f.isStatic());
+            }
+        }
+
+        out.print("\n");
      }
 
     public final void output_exception(ExceptionEvent e) {
         ObjectReference re     = e.exception();
         StringReference msgVal = (StringReference) re.getValue(re.referenceType().fieldByName("detailMessage"));
-
-        out.print(EXCEPTION_RESPONSE + "," + re.type().name());
-        outputLocation(e.catchLocation());
-        out.print("," + (msgVal == null ? "" : msgVal.value()) + ",(");
+        String          s      = "";
 
         try {
-            outputSingleLevelValue(getValueOfSingleRemoteCall(re, "getStackTrace", e.thread()),
-                                   e.thread());
+            s = outputSingleLevelValue(getValueOfSingleRemoteCall(re, "getStackTrace", e.thread()),
+                                       e.thread());
         } catch (InvalidTypeException ie) {
         } catch (ClassNotLoadedException ie) {
         } catch (IncompatibleThreadStateException ie) {
@@ -191,34 +836,21 @@ class DebuggerOutput {
         } catch (IllegalArgumentException ie) {
         }
 
-        out.println(")");}
+        synchronized(this) {
+            out.print(EXCEPTION_RESPONSE + "," + re.type().name() + ",");
+            outputLocation(e.catchLocation());
+            out.println(",(" + s + ")");
+        }}
 
     public final void output_error (String error) {
         out.println("\n" + ERROR_RESPONSE + "," + error);}
-
-    public final void output_classUnloaded ( String className) {
-        out.println(CLASSUNLOADED_RESPONSE + "," + className);}
-
-    public final void output_classPrepared ( String className) {
-        out.println(CLASSPREPARED_RESPONSE + "," + className);}
-
-    public final void output_classes (List<ReferenceType> refs) {
-        out.print(CLASSES_RESPONSE);
-        for (ReferenceType r : refs) {
-            out.print("," + r.name());
-        }
-        out.print("\n");
-    }
-
-    public final void output_catchEnabled(boolean enable) {
-        out.println(CATCHENABLED_RESPONSE + "," + enable);}
 
     public final void output_breakpointList (List<BreakpointRequest> bp) {
 
         BreakpointRequest [] bps = new BreakpointRequest [1000];
 
         for (BreakpointRequest b : bp)  {
-            bps [((Integer) b.getProperty(JavaDebuggerProxy.NumberProperty)).intValue()] = b;
+            bps [((Integer) b.getProperty(NumberProperty)).intValue()] = b;
         }
 
         out.print(BREAKPOINTLIST_RESPONSE);
@@ -235,49 +867,10 @@ class DebuggerOutput {
         out.print("\n");
     }
 
-    public final void output_breakpointEntered ( int breakId, ThreadReference tr, Location loc) {
-        out.print(BREAKPOINTENTERED_RESPONSE + "," + Integer.toString(breakId));
-        outputThreadReference(tr);
-        outputLocation(loc);
-        outputEnd();}
-
-    public final void output_breakpointCreated ( int breakId, Location loc) {
-        out.print(BREAKPOINTCREATED_RESPONSE + "," + Integer.toString(breakId));
-        outputLocation(loc);
-        outputEnd();}
-
-    public final void output_breakpointCleared ( int breakId) {
-        out.println(BREAKPOINTCLEARED_RESPONSE + "," + Integer.toString(breakId));}
-
-    public final void output_arguments(String thread, String frame) {
-        out.print(ARGUMENTS_RESPONSE +"," + thread + "," + frame +",("); }
-
-    public final void output_endargument() {
-        out.println(")"); }
-
-    public final void output_accessWatchpointSet (String cl, String fl ) {
-        out.println(ACCESSWATCHPOINTSET_RESPONSE + "," + cl + "," + fl); }
-
-    public final void output_accessWatchpoint ( ObjectReference object, Field field, Value value, ThreadReference tr) {
-        out.print(ACCESSWATCHPOINT_RESPONSE + "," + object.referenceType().name() + "," + field.name() + ",(");
-        outputSingleLevelValue(value, tr);
-        out.println(")");
-    }
-
-    public final void output_integer(int i) {
-        out.print("," + i);}
-
-    public final void outputEnd() {
-        out.print("\n");}
-
-    void close() {
-        out.flush();
-        out.close(); }
-
     public void output_internalException(Throwable t)
     {
-        StringWriter   sw = new StringWriter();
-        PrintWriter     pw = new PrintWriter(sw);
+        StringWriter sw = new StringWriter();
+        PrintWriter  pw = new PrintWriter(sw);
 
         t.printStackTrace(pw);
 
@@ -285,7 +878,7 @@ class DebuggerOutput {
                     + "," + t.getMessage() + "," + sw.toString().replace('\n', '\t'));
     }
 
-    public void outputLocation(Location loc) {
+    private void outputLocation(Location loc) {
 
         if (loc == null) {
 
@@ -306,23 +899,7 @@ class DebuggerOutput {
         }
     }
 
-
-    public void outputField(Field f) {
-
-        if (f != null) {
-
-            out.print("," + f.name()
-                      + "," + f.typeName()
-                      + "," + f.declaringType().name()
-                      + "," + f.isEnumConstant()
-                      + "," + f.isTransient()
-                      + "," + f.isVolatile()
-                      + "," + f.isFinal()
-                      + "," + f.isStatic());
-        }
-    }
-
-    public void outputThreadReference(ThreadReference tr) {
+    private void outputThreadReference(ThreadReference tr) {
 
         if (tr == null) {
 
@@ -377,75 +954,78 @@ class DebuggerOutput {
                   + tr.isSuspended());
     }
 
-    private void outputSingleLevelValue(Value v, ThreadReference tr) {
+    private String outputSingleLevelValue(Value v, ThreadReference tr) {
         String [] refs = new String [] {"*"};
-        outputValue(v, tr, refs, 0);
+        return outputValue(v, tr, refs, 0);
     }
 
-    private void outputValue(Value v, ThreadReference tr, String [] refs, int depth) {
+    private String outputValue(Value v, ThreadReference tr, String [] refs, int depth) {
+
+        StringBuilder sb = new StringBuilder();
 
         if (depth >= refs.length) {
-            return;
+            return "";
         }
 
         if (v == null) {
-            out.print("\"null\"");
+            sb.append("\"null\"");
         }
 
         // unhandled value types
 
         else if (v instanceof ClassLoaderReference) {
-            out.print("unsupported value type,ClassLoaderReference");
+            sb.append("unsupported value type,ClassLoaderReference");
         }
         else if (v instanceof ClassObjectReference) {
-            out.print("unsupported value type,ClassObjectReference");
+            sb.append("unsupported value type,ClassObjectReference");
         }
         else if (v instanceof ThreadGroupReference) {
-            out.print("unsupported value type,ThreadGroupReference");
+            sb.append("unsupported value type,ThreadGroupReference");
         }
 
         // primitive value types
 
         else if (v instanceof ThreadReference) {
-            out.print("\"" + Long.toString(((ThreadReference) v).uniqueID()) + "\"");
+            sb.append("\"" + Long.toString(((ThreadReference) v).uniqueID()) + "\"");
         }
 
         else if (v instanceof VoidValue) {
-            out.print("VoidValue");
+            sb.append("VoidValue");
         }
 
         else if (v instanceof BooleanValue) {
-            out.print("\"" + Boolean.toString(((BooleanValue) v).value()) + "\"");
+            sb.append("\"" + Boolean.toString(((BooleanValue) v).value()) + "\"");
         }
         else if (v instanceof ByteValue) {
-            out.print("\"" + Byte.toString(((ByteValue) v).value()) + "\"");
+            sb.append("\"" + Byte.toString(((ByteValue) v).value()) + "\"");
         }
         else if (v instanceof CharValue) {
-            out.print("\"" + Character.toString(((CharValue) v).value()) + "\"");
+            sb.append("\"" + Character.toString(((CharValue) v).value()) + "\"");
         }
         else if (v instanceof DoubleValue) {
-            out.print("\"" + Double.toString(((DoubleValue) v).value()) + "\"");
+            sb.append("\"" + Double.toString(((DoubleValue) v).value()) + "\"");
         }
         else if (v instanceof FloatValue) {
-            out.print("\"" + Float.toString(((FloatValue) v).value()) + "\"");
+            sb.append("\"" + Float.toString(((FloatValue) v).value()) + "\"");
         }
         else if (v instanceof IntegerValue) {
-            out.print("\"" + Integer.toString(((IntegerValue) v).value()) + "\"");
+            sb.append("\"" + Integer.toString(((IntegerValue) v).value()) + "\"");
         }
         else if (v instanceof LongValue) {
-            out.print("\"" + Long.toString(((LongValue) v).value()) + "\"");
+            sb.append("\"" + Long.toString(((LongValue) v).value()) + "\"");
         }
         else if (v instanceof ShortValue) {
-            out.print("\"" + Short.toString(((ShortValue) v).value()) + "\"");
+            sb.append("\"" + Short.toString(((ShortValue) v).value()) + "\"");
         }
         else if (v instanceof StringReference) {
-            out.print("\"" + ((StringReference) v).value() + "\"");
+            sb.append("\"" + ((StringReference) v).value() + "\"");
         }
 
         // compound value types
 
         else if (v instanceof ArrayReference)  {
-            printArray((ArrayReference) v, "array", tr, refs, depth);
+
+            printArray(sb, (ArrayReference) v, "array", tr, refs, depth);
         }
 
         else if ((v.type() instanceof ReferenceType) && (v.type() instanceof ClassType))  {
@@ -459,7 +1039,8 @@ class DebuggerOutput {
                 if (i.name().equals("java.util.List")) {
 
                     try {
-                        printArray((ArrayReference) getValueOfSingleRemoteCall(((ObjectReference) v), "toArray", tr),
+                        printArray(sb,
+                                   (ArrayReference) getValueOfSingleRemoteCall(((ObjectReference) v), "toArray", tr),
                                    "list",
                                    tr,
                                    refs,
@@ -471,45 +1052,47 @@ class DebuggerOutput {
                     } catch (IllegalArgumentException e) {
                     }
 
-                    return;
+                    return sb.toString();
                 }
 
                 if (i.name().equals("java.util.Map")) {
-                    mapToString((ObjectReference) v, tr, refs, depth);
-                    return;
+                    mapToString(sb, (ObjectReference) v, tr, refs, depth);
+                    return sb.toString();
                 }
             }
 
-            // It's just an ordinary object
+           // It's just an ordinary object
 
             List<Field>	  fld = ((ClassType) v.type()).allFields();
 
-            out.print("(\"type\" \"" + v.type().name() + "\" )  ( \"fields\" ");
+            sb.append("(\"type\" \"" + v.type().name() + "\" )  ( \"fields\" ");
 
             for (Field f : fld) {
 
                 if (refs [depth].equals("*") || refs [depth].equals(f.name())) {
-                    out.print("( \"" + f.name() + "\" ");
+                    sb.append("( \"" + f.name() + "\" ");
                     outputValue(((ObjectReference) v).getValue(f), tr, refs, depth + 1);
-                    out.print(" )");
+                    sb.append(" )");
                 }
             }
 
-            out.print(") ");
+            sb.append(") ");
         }
 
         else {
-            out.print("unknown value type");
+            sb.append("unknown value type");
         }
+
+        return sb.toString();
     }
 
-    private void  printArray(ArrayReference arrayReference, String ty, ThreadReference tr, String [] refs, int depth) {
+    private void  printArray(StringBuilder sb, ArrayReference arrayReference, String ty, ThreadReference tr, String [] refs, int depth) {
 
         int size   = arrayReference.length();
         int bottom = 0;
         int top    = (20 > size) ? size : 20;
 
-        out.print("( \"type\" \"" + ty + "\" ) ( \"size\"  \"" + size + "\") ( \"contents\" ");
+        sb.append("( \"type\" \"" + ty + "\" ) ( \"size\"  \"" + size + "\") ( \"contents\" ");
 
         if (!refs [depth].equals("*")) {
 
@@ -538,25 +1121,25 @@ class DebuggerOutput {
         }
 
         for (int i = bottom; i < top; i++) {
-            out.print("( \"" + i + "\" ");
+            sb.append("( \"" + i + "\" ");
             outputValue(arrayReference.getValue(i), tr, refs, depth+1);
-            out.print(")");
+            sb.append(")");
         }
 
-        out.print(" ) ");
+        sb.append(" ) ");
     }
 
-    private void mapToString(ObjectReference mapReference, ThreadReference tr, String [] refs, int depth) {
+    private void mapToString(StringBuilder sb, ObjectReference mapReference, ThreadReference tr, String [] refs, int depth) {
 
         int rparen = 0;
-        out.print("( \"type\" \"Map\" )");
+        sb.append("( \"type\" \"Map\" )");
 
         try {
             // get the map's size
 
             int size = ((IntegerValue) getValueOfSingleRemoteCall(mapReference, "size", tr)).value();
 
-            out.print("(\"size\" \""
+            sb.append("(\"size\" \""
                       + Integer.toString(size)
                       + "\") (\"contents\" ");rparen++;
 
@@ -607,9 +1190,9 @@ class DebuggerOutput {
 
                 for (Value v : keys) {
 
-                    out.print("( ");rparen++;
+                    sb.append("( ");rparen++;
                     outputSingleLevelValue(v, tr);
-                    out.print(" ");
+                    sb.append(" ");
 
                     ArrayList<Value> keyList = new ArrayList<Value> ();
                     keyList.add(v);
@@ -619,7 +1202,7 @@ class DebuggerOutput {
                                 refs,
                                 depth + 1);
 
-                    out.print(" )");rparen--;
+                    sb.append(" )");rparen--;
                 }
             }
         } catch (InvalidTypeException e) {
@@ -629,7 +1212,7 @@ class DebuggerOutput {
         } catch (IllegalArgumentException e) {
         }
 
-        while (rparen != 0) {out.print(")");rparen--;}
+        while (rparen != 0) {sb.append(")");rparen--;}
     }
 
     private Value getValueOfSingleRemoteCall(ObjectReference objectReference,
@@ -668,7 +1251,7 @@ class DebuggerOutput {
 
         for (Method mm : methods)  {
 
-            List<Type>                       argumentTypes     = mm.argumentTypes();
+            List<Type>        argumentTypes    = mm.argumentTypes();
             ARGUMENT_MATCHING argumentMatching = argumentsMatching(argumentTypes, arguments);
 
             if (argumentMatching == ARGUMENT_MATCHING.MATCH) {
@@ -787,5 +1370,18 @@ class DebuggerOutput {
         }
 
         return false;
+    }
+
+    class CommandDescription    {
+        public TOKEN  token;
+        public int          length;
+        public String   format;
+
+        CommandDescription(TOKEN t, int len, String s)
+        {
+            token  = t;
+            length = len;
+            format = s;
+        }
     }
 }

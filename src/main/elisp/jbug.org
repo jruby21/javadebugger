@@ -171,6 +171,11 @@ setting it as the value of the jbug-proxy-command variable.
   :type '(string)
   :group 'jbug)
 
+(defvar
+  jbug-receivedFromProxy
+  ""
+  "Concat return values from process filter in this variable")
+
 (defun jbug-get-proxy-command()
   "Return the shell command to start the proxy program."
   (if jbug-proxy-command
@@ -217,6 +222,7 @@ wait for the proxy to signal that it has started.
 
 ;; start a new proxy
 
+(setq jbug-receivedFromProxy "")
 (setq proxyProcess (apply 'start-process "jbugProxy"  (current-buffer) (split-string (jbug-get-proxy-command))))
 (set-process-filter proxyProcess 'jbug-insertion-filter)
 (set-process-query-on-exit-flag proxyProcess nil)
@@ -624,8 +630,6 @@ runningCommand may have finished and it might be time to start another command.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 
-(setq jbug-receivedFromProxy "")
-
 (defun jbug-insertion-filter (proc string)
   "Receive input from the proxy process.
 PROC is the proxy process
@@ -752,7 +756,9 @@ LOCATION - the location of the breakpoint"
     (locationFile location)
     ":"
     (locationLineNumber location)
-    "\n"))
+    " ("
+    (if (locationMethod location) (locationMethod location) "")
+    ")\n"))
   (setSourceFileWindow
    proc
    (locationFile location)
@@ -1391,61 +1397,6 @@ Prints a short description of every debugger command.
                                (lambda (r) (string= (car r) "help"))))
 #+END_SRC
 
-**** wait
-
-For use in command lists. Pauses execution of commands in the list until a
-breakpoint is entered or a class is prepared.
-
-
-Now this is a fairly amusing command.
-
-It's entered like this:
-
-     wait breakpointentered
-
-or
-
-     wait classprepared.
-
-In the first case it sends a run command to the proxy and waits for a
-breakpointentered response. In the second, it sends a run command to the proxy
-and waits for a classprepared response.
-
-When runningCommand is set to this command and the command is executed (i.e. the
-second lamda expression in the commandHashEntry runs) the code looks in
-runningCommand, picks out the commandHashEnry, picks the response list field out
-of the commandHashEntry, and sets it to a list containing - among other things,
-the second argument of the wait command. All this happens in the setf instruction
-below.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- commandHashMap
- "wait"
-   (jbug-makeCommandHashEntry "wait"
-                               (lambda (c) (/= (length c) 2))
-                               "wait"
-                               (lambda (proxy c)
-                                 (setf
-                                  (nth 4 (nth 3 runningCommand))
-                                  (list (nth 1 c) jbug-error-response jbug-internalException-response jbug-exception-response))
-                                 (process-send-string
-                                  proxy
-                                  "run\n"))
-                               ()))
-
-(defvar jbug-classPrepared-functions nil)
-(setq jbug-classPrepared-functions ())
-(ht-set jbug-response-hash-table
-   jbug-classPrepared-response
-   (lambda (response) (run-hook-with-args 'jbug-classPrepared-functions response)))
-
-(add-hook 'jbug-classPrepared-functions (lambda ( resp)
-            (writeStringToBuffer proc (concat  (s-join " " resp) ".\n"))))
-
-#+END_SRC
-
 **** locals
 
 Print local variables with their values.
@@ -1480,8 +1431,8 @@ with a variable descriptor string.
           (run-hook-with-args
            'jbug-locals-functions
            (nth 1 response)
-      (nth 2 response)
-      (nth 0 (read-from-string (nth 3 response))))))
+           (nth 2 response)
+           (nth 0 (read-from-string (nth 3 response))))))
 
 (add-hook
  'jbug-locals-functions
@@ -1911,6 +1862,64 @@ Prints the running threads and their status.
 
 #+END_SRC
 
+**** wait
+
+For use in command lists. Pauses execution of commands in the list until a
+breakpoint is entered or a class is prepared.
+
+
+Now this is a fairly amusing command.
+
+It's entered like this:
+
+     wait breakpointentered
+
+or
+
+     wait classprepared.
+
+In the first case it sends a run command to the proxy and waits for a
+breakpointentered response. In the second, it sends a run command to the proxy
+and waits for a classprepared response.
+
+When runningCommand is set to this command and the command is executed (i.e. the
+second lamda expression in the commandHashEntry runs) the code looks in
+runningCommand, picks out the commandHashEnry, picks the response list field out
+of the commandHashEntry, and sets it to a list containing - among other things,
+the second argument of the wait command. All this happens in the setf instruction
+below.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ commandHashMap
+ "wait"
+   (jbug-makeCommandHashEntry "wait"
+                               (lambda (c) (or
+                                            (/= (length c) 2)
+                                            (and (not (string= "classprepared" (nth 1 c)))
+                                                 (not (string= "breakpointentered" (nth 1 c))))))
+                               "wait <classprepared|breakpointentered>"
+                               (lambda (proxy c)
+                                 (setf
+                                  (nth 4 (nth 3 runningCommand))
+                                  (list (nth 1 c) jbug-error-response jbug-internalException-response jbug-exception-response))
+                                 (process-send-string
+                                  proxy
+                                  "run\n"))
+                               ()))
+
+(defvar jbug-classPrepared-functions nil)
+(setq jbug-classPrepared-functions ())
+(ht-set jbug-response-hash-table
+   jbug-classPrepared-response
+   (lambda (response) (run-hook-with-args 'jbug-classPrepared-functions response)))
+
+(add-hook 'jbug-classPrepared-functions (lambda ( resp)
+            (writeStringToBuffer proc (concat  (s-join " " resp) ".\n"))))
+
+#+END_SRC
+
 **** up
 
 Decrement defaultFrame moving it closer to the current frame.
@@ -1973,8 +1982,9 @@ Decrement defaultFrame moving it closer to the current frame.
    (lambda (response) (run-hook-with-args 'jbug-log-functions (nth 1 response))))
 
 ;; log
-(add-hook 'jbug-log-functions (lambda ( resp)
-            (writeStringToBuffer proc (concat  (s-join " " resp) ".\n"))))
+(add-hook 'jbug-log-functions (lambda (resp)
+                                (message "log functions %s" resp)
+                                (writeStringToBuffer proc (concat resp ".\n"))))
 
 ;; proxyStarted
 (defvar jbug-proxyStarted-functions nil)
