@@ -56,6 +56,8 @@ import com.sun.jdi.event.BreakpointEvent;
 import com.sun.jdi.event.ClassPrepareEvent;
 import com.sun.jdi.event.ClassUnloadEvent;
 import com.sun.jdi.event.Event;
+import com.sun.jdi.event.EventIterator;
+import com.sun.jdi.event.EventSet;
 import com.sun.jdi.event.ExceptionEvent;
 import com.sun.jdi.event.MethodEntryEvent;
 import com.sun.jdi.event.MethodExitEvent;
@@ -71,6 +73,7 @@ import com.sun.jdi.request.AccessWatchpointRequest;
 import com.sun.jdi.request.BreakpointRequest;
 import com.sun.jdi.request.ClassPrepareRequest;
 import com.sun.jdi.request.EventRequest;
+import com.sun.jdi.request.EventRequestManager;
 import com.sun.jdi.request.ExceptionRequest;
 import com.sun.jdi.request.ModificationWatchpointRequest;
 import com.sun.jdi.request.StepRequest;
@@ -78,6 +81,7 @@ import com.sun.jdi.request.StepRequest;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -87,16 +91,17 @@ import java.util.concurrent.ArrayBlockingQueue;
 class DebuggerOutput extends Thread {
 
     private final static String ACCESSWATCHPOINT_RESPONSE          = "accesswatchpoint";
-    private final static String ACCESSWATCHPOINTSET_RESPONSE       = "accesswatchpointset";
-    private final static String ARGUMENTS_RESPONSE                 = "arguments";
+    private final static String ACCESSWATCHPOINTSET_RESPONSE   = "accesswatchpointset";
+    private final static String ARGUMENTS_RESPONSE                            = "arguments";
     private final static String BREAKPOINTCLEARED_RESPONSE         = "breakpointcleared";
     private final static String BREAKPOINTCREATED_RESPONSE         = "breakpointcreated";
     private final static String BREAKPOINTENTERED_RESPONSE         = "breakpointentered";
-    private final static String BREAKPOINTLIST_RESPONSE            = "breakpointlist";
-    private final static String CATCHENABLED_RESPONSE              = "catchenabled";
-    private final static String CLASSES_RESPONSE                   = "classes";
-    private final static String CLASSPREPARED_RESPONSE             = "classprepared";
-    private final static String CLASSUNLOADED_RESPONSE             = "classunloaded";
+    private final static String BREAKPOINTLIST_RESPONSE                   = "breakpointlist";
+    private final static String CATCHENABLED_RESPONSE                     = "catchenabled";
+    private final static String CLASSES_RESPONSE                                    = "classes";
+    private final static String CLASSPREPARED_RESPONSE                    = "classprepared";
+    private final static String CLASSUNLOADED_RESPONSE                   = "classunloaded";
+    private final static String COMMAND_READY_RESPONSE                 = "commandready";
     private final static String ERROR_RESPONSE                     = "error";
     private final static String EXCEPTION_RESPONSE                 = "exception";
     private final static String FIELDS_RESPONSE                    = "fields";
@@ -125,10 +130,11 @@ class DebuggerOutput extends Thread {
     private PrintStream                              out      = null;
 
     public  static final String NumberProperty = "breakpointNumber";
-    private static       int    bpcount        = 0;
+    private static       int      bpcount           = 0;
 
-    private VirtualMachine vm             = null;
-    private int            pcount         = 0;
+    private VirtualMachine    vm                 = null;
+    private int                   pcount             = 0;
+    private EventSet            lastEventSet      = null;
 
     private enum TOKEN { ACCESS, ARGUMENTS, ATTACH, BACK, BREAK, BREAKS, CATCH, CLASSES, CLEAR, DONE, FIELDS, INTO, LOCALS, MODIFY, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
 
@@ -163,6 +169,8 @@ class DebuggerOutput extends Thread {
     public void run() {
 
         out.println(PROXYSTARTED_RESPONSE);
+        out.println(COMMAND_READY_RESPONSE);
+        output_log("Entering DebuggerOutput: " + identify.timestamp + " " + identify.directory);
 
         while (true) {
             try {
@@ -175,7 +183,13 @@ class DebuggerOutput extends Thread {
 
     public void command(String s) {
 
-        if (s.isEmpty()) { return; }
+        if (!s.isEmpty()) {
+            executeCommand(s);
+            out.println(COMMAND_READY_RESPONSE);
+        }
+    }
+
+    private void executeCommand(String s) {
 
         String []          tokens  = s.split(",");
         CommandDescription command = keywords.get(tokens [0].toLowerCase().trim());
@@ -478,12 +492,23 @@ class DebuggerOutput extends Thread {
 
             case PREPARE:
 
-                ClassPrepareRequest r = vm.eventRequestManager().createClassPrepareRequest();
-                r.disable();
-                r.addClassFilter(tokens [1]);
-                r.setSuspendPolicy(EventRequest.SUSPEND_ALL);
-                r.enable();
+                // Maybe the class is already loaded
+
                 out.println(PREPARINGCLASS_RESPONSE + "," + tokens [1]);
+
+                List<ReferenceType> loaded = vm.classesByName(tokens [1]);
+
+                if (!loaded.isEmpty()) {
+                    out.println(CLASSPREPARED_RESPONSE + "," + loaded.get(0).name());
+                } else {
+                    ClassPrepareRequest r = vm.eventRequestManager().createClassPrepareRequest();
+                    r.disable();
+                    r.addClassFilter(tokens [1]);
+                    r.setSuspendPolicy(EventRequest.SUSPEND_ALL);
+                    r.enable();
+                    vm.resume();
+                }
+
                 break;
 
             case QUIT:
@@ -491,6 +516,7 @@ class DebuggerOutput extends Thread {
                 out.println(PROXYEXITED_RESPONSE);
                 out.flush();
                 out.close();
+                vm.dispose();
                 vm.exit(0);
                 System.exit(0);
                 break;
@@ -518,6 +544,7 @@ class DebuggerOutput extends Thread {
             case THIS:
 
                 trr = getThreadReference(tokens[1]);
+                disableAllRequests();
                 out.println(THIS_RESPONSE + ","
                             + tokens [1] + ","
                             + tokens [2] +",("
@@ -525,6 +552,7 @@ class DebuggerOutput extends Thread {
                                           trr,
                                           tokens [3].split("[.]"), 0)
                             +")");
+                renableAllRequests();
                 break;
 
 
@@ -595,9 +623,11 @@ class DebuggerOutput extends Thread {
         Iterator<String> itn = name.iterator();
         Iterator<Value>  itv = val.iterator();
 
+        disableAllRequests();
         while (itn.hasNext()) {
             out.print("(\"" + itn.next() + "\" " + outputValue(itv.next(), tr, refs, 1) + " ) ");
         }
+        renableAllRequests();
 
         out.println(")");
     }
@@ -668,7 +698,6 @@ class DebuggerOutput extends Thread {
             }
 
             if (sr != null)  {
-                out.println(STEPCREATED_RESPONSE);
                 sr.addCountFilter(1);
                 sr.enable();
                 vm.resume();
@@ -708,23 +737,56 @@ class DebuggerOutput extends Thread {
         return null;
     }
 
-    public void event(Event event) {
+    public void event(EventSet event) {
+
+        boolean       resume = true;
+        EventIterator it     = event.eventIterator();
+
+        lastEventSet = event;
+
+        while (it.hasNext()) {
+            Event e = it.next();
+            resume = resume && eventHandler(e);
+        }
+
+        if (resume) {
+            event.resume();
+        }
+    }
+
+    private boolean eventHandler(Event event) {
         try {
             if (event instanceof AccessWatchpointEvent) {
                 AccessWatchpointEvent ae = (AccessWatchpointEvent) event;
-                String                s  = outputSingleLevelValue(ae.valueCurrent(), ae.thread());
-                out.println(ACCESSWATCHPOINT_RESPONSE + ","
-                            + ae.object().referenceType().name() + ","
+
+                out.print(ACCESSWATCHPOINT_RESPONSE + ",7");
+                outputThreadReference(ae.thread());
+                outputLocation(ae.location());
+                out.println("," + ae.object().referenceType().name() + ","
                             + ae.field().name()
-                            + ",(" + s + ")");
-            } else if (event instanceof BreakpointEvent) {
+                            + ",("
+                            + outputSingleLevelValue(ae.valueCurrent(), ae.thread())
+                            + ")");
+
+                // if you want a step to work and not invoke this breakpoint
+                // again.
+                event.request().setEnabled(false);
+
+                return false;
+            }
+
+            if (event instanceof BreakpointEvent) {
                 BreakpointEvent bp = (BreakpointEvent) event;
+
                 out.print(BREAKPOINTENTERED_RESPONSE + ","
                           + Integer.toString(((Integer) bp.request().getProperty(NumberProperty)).intValue()));
                 outputThreadReference(bp.thread());
                 outputLocation(bp.location());
                 out.print("\n");
-            } else if (event instanceof ClassPrepareEvent) {
+                return false;
+            }
+
+            if (event instanceof ClassPrepareEvent) {
 
                 // In rare cases, this event may occur in a debugger
                 // system thread within the target VM. Debugger
@@ -747,54 +809,94 @@ class DebuggerOutput extends Thread {
                     out.println(CLASSPREPARED_RESPONSE + "," + ((ClassPrepareEvent) event).referenceType().name());
                 } else {
                     ((ClassPrepareRequest) event.request()).enable();
-                    vm.resume();
                 }
-            } else if (event instanceof ClassUnloadEvent) {
+
+                return false;
+            }
+
+            if (event instanceof ClassUnloadEvent) {
                 out.println(CLASSUNLOADED_RESPONSE + ","
                             + ((ClassUnloadEvent) event).className());
-            } else if (event instanceof ExceptionEvent)   {
-                output_exception((ExceptionEvent) event);
-            } else if (event instanceof MethodEntryEvent) {
-                ;
-            } else if (event instanceof MethodExitEvent) {
-                ;
-            } else if (event instanceof ModificationWatchpointEvent) {
-                ModificationWatchpointEvent me = (ModificationWatchpointEvent) event;
-                String                      p  = outputSingleLevelValue(me.valueCurrent(), me.thread());
-                String                      f  = outputSingleLevelValue(me.valueToBe(),    me.thread());
 
-                out.println(MODIFICATIONWATCHPOINT_RESPONSE + "," + me.object().referenceType().name() + "," + me.field().name() + ",("
-                            + p
+                return true;
+            }
+
+            if (event instanceof ExceptionEvent)   {
+                output_exception((ExceptionEvent) event);
+                return true;
+            }
+
+            if (event instanceof MethodEntryEvent) {
+                return true;
+            }
+
+            if (event instanceof MethodExitEvent) {
+                return true;
+            }
+
+            if (event instanceof ModificationWatchpointEvent) {
+                ModificationWatchpointEvent me = (ModificationWatchpointEvent) event;
+
+                out.print(MODIFICATIONWATCHPOINT_RESPONSE);
+                outputLocation(me.location());
+                out.println("," + me.object().referenceType().name() + "," + me.field().name() + ",("
+                            + outputSingleLevelValue(me.valueCurrent(), me.thread())
                             + "),("
-                            + f
+                            + outputSingleLevelValue(me.valueToBe(), me.thread())
                             + ")");
-            } else if (event instanceof StepEvent) {
+
+                // if you want a step to work and not invoke this breakpoint
+                // again.
+                event.request().setEnabled(false);
+
+                return false;
+            }
+
+            if (event instanceof StepEvent) {
                 StepEvent se = (StepEvent) event;
+
                 out.print(STEP_RESPONSE);
                 outputThreadReference(se.thread());
                 outputLocation(se.location());
                 out.print("\n");
                 se.request().disable();
-            } else if (event instanceof ThreadStartEvent) {
+
+                return false;
+            }
+
+            if (event instanceof ThreadStartEvent) {
                 out.print(THREADSTARTED_RESPONSE);
                 outputThreadReference(((ThreadStartEvent) event).thread());
                 out.print("\n");
-            } else if (event instanceof ThreadDeathEvent) {
+                return true;
+            }
+
+            if (event instanceof ThreadDeathEvent) {
                 out.print(THREADDIED_RESPONSE);
                 outputThreadReference(((ThreadDeathEvent) event).thread());
                 out.print("\n");
-            } else if (event instanceof VMDeathEvent)   {
+                return true;
+            }
+
+            if (event instanceof VMDeathEvent)   {
                 out.println(VMDIED_RESPONSE);
-            } else if (event instanceof VMDisconnectEvent)   {
+                return true;
+            }
+
+            if (event instanceof VMDisconnectEvent)   {
                 out.println(VMDISCONNECTED_RESPONSE);
-            } else if (event instanceof VMStartEvent) {
+                return true;
+            }
+
+            if (event instanceof VMStartEvent) {
                 out.println(VMSTARTED_RESPONSE);
-            } else {
-                ;
+                return false;
             }
         } catch (VMDisconnectedException d) {
             out.println(VMDISCONNECTED_RESPONSE);
         }
+
+        return true;
     }
 
     public final void output_log(String msg) {
@@ -1025,7 +1127,7 @@ class DebuggerOutput extends Thread {
 
         else if (v instanceof ArrayReference)  {
 
-            printArray(sb, (ArrayReference) v, "array", tr, refs, depth);
+            printArray(sb, (ArrayReference) v, v.type().name(), tr, refs, depth);
         }
 
         else if ((v.type() instanceof ReferenceType) && (v.type() instanceof ClassType))  {
@@ -1038,20 +1140,7 @@ class DebuggerOutput extends Thread {
 
                 if (i.name().equals("java.util.List")) {
 
-                    try {
-                        printArray(sb,
-                                   (ArrayReference) getValueOfSingleRemoteCall(((ObjectReference) v), "toArray", tr),
-                                   "list",
-                                   tr,
-                                   refs,
-                                   depth);
-                    } catch (InvalidTypeException e) {
-                    } catch (ClassNotLoadedException e) {
-                    } catch (IncompatibleThreadStateException e) {
-                    } catch (InvocationException e) {
-                    } catch (IllegalArgumentException e) {
-                    }
-
+                    printList(sb, ((ObjectReference) v), v.type().name(), tr, refs, depth);
                     return sb.toString();
                 }
 
@@ -1070,9 +1159,11 @@ class DebuggerOutput extends Thread {
             for (Field f : fld) {
 
                 if (refs [depth].equals("*") || refs [depth].equals(f.name())) {
-                    sb.append("( \"" + f.name() + "\" ");
-                    outputValue(((ObjectReference) v).getValue(f), tr, refs, depth + 1);
-                    sb.append(" )");
+                    sb.append("( \""
+                              + f.name()
+                              + "\" "
+                              + outputValue(((ObjectReference) v).getValue(f), tr, refs, depth + 1)
+                              + " )");
                 }
             }
 
@@ -1087,12 +1178,73 @@ class DebuggerOutput extends Thread {
     }
 
     private void  printArray(StringBuilder sb, ArrayReference arrayReference, String ty, ThreadReference tr, String [] refs, int depth) {
+        sb.append("( \"type\" \"" + ty + "\" ) ");
 
-        int size   = arrayReference.length();
+        int    size   = arrayReference.length();
+        int [] bounds = arrayListPreamble(sb, size, refs, depth);
+
+        for (int i = bounds [0]; i < bounds [1]; i++) {
+            sb.append("( \""
+                      + i
+                      + "\" "
+                      + outputValue(arrayReference.getValue(i), tr, refs, depth+1)
+                      + ")");
+        }
+
+        sb.append(" ) ");
+    }
+
+    private void  printList(StringBuilder sb, ObjectReference listReference, String ty, ThreadReference tr, String [] refs, int depth) {
+
+        sb.append("( \"type\" \"" + ty + "\" ) ");
+
+        StringBuilder nb = new StringBuilder();
+
+        try {
+            int size = ((IntegerValue) getValueOfSingleRemoteCall(listReference, "size", tr)).value();
+
+            int [] bounds = arrayListPreamble(nb,
+                                              size,
+                                              refs,
+                                              depth);
+
+            ArrayList<Value> emptyList = new ArrayList<Value> ();
+            int              k         = 0;
+
+            emptyList.add(vm.mirrorOf(k));
+            Method           get       = remoteMethod(listReference,
+                                                      "get",
+                                                      emptyList);
+
+            for (int i = bounds [0]; i < bounds [1]; i++) {
+
+                ArrayList<Value> indexList = new ArrayList<Value> ();
+                indexList.add(vm.mirrorOf(i));
+
+                nb.append("( \""
+                          + i
+                          + "\" "
+                          + outputValue(invokeRemoteMethod(listReference, get, indexList, tr),
+                                        tr,
+                                        refs,
+                                        depth + 1)
+                          + ")");
+            }
+        } catch (InvalidTypeException e) { nb = new StringBuilder();output_log(e.getMessage());
+        } catch (ClassNotLoadedException e) { nb = new StringBuilder();output_log(e.getMessage());
+        } catch (IncompatibleThreadStateException e) { nb = new StringBuilder();output_log(e.getMessage());
+        } catch (InvocationException e) { nb = new StringBuilder();output_log(e.getMessage());
+        } catch (IllegalArgumentException e) { nb = new StringBuilder();output_log(e.getMessage()); }
+
+        sb.append(nb.toString() + " ) ");
+    }
+
+    private int [] arrayListPreamble(StringBuilder sb, int size, String [] refs, int depth) {
+
         int bottom = 0;
         int top    = (20 > size) ? size : 20;
 
-        sb.append("( \"type\" \"" + ty + "\" ) ( \"size\"  \"" + size + "\") ( \"contents\" ");
+        sb.append(" ( \"size\"  \"" + size + "\") ( \"contents\" ");
 
         if (!refs [depth].equals("*")) {
 
@@ -1120,13 +1272,12 @@ class DebuggerOutput extends Thread {
             }
         }
 
-        for (int i = bottom; i < top; i++) {
-            sb.append("( \"" + i + "\" ");
-            outputValue(arrayReference.getValue(i), tr, refs, depth+1);
-            sb.append(")");
-        }
+        int [] ret = new int [2];
 
-        sb.append(" ) ");
+        ret [0] = bottom;
+        ret [1] = top;
+
+        return ret;
     }
 
     private void mapToString(StringBuilder sb, ObjectReference mapReference, ThreadReference tr, String [] refs, int depth) {
@@ -1190,17 +1341,18 @@ class DebuggerOutput extends Thread {
 
                 for (Value v : keys) {
 
-                    sb.append("( ");rparen++;
-                    outputSingleLevelValue(v, tr);
-                    sb.append(" ");
-
                     ArrayList<Value> keyList = new ArrayList<Value> ();
                     keyList.add(v);
 
-                    outputValue(invokeRemoteMethod(mapReference, get, keyList, tr),
-                                tr,
-                                refs,
-                                depth + 1);
+                    sb.append("( ");rparen++;
+
+                    sb.append(" "
+                              + outputSingleLevelValue(v, tr)
+                              + " "
+                              + outputValue(invokeRemoteMethod(mapReference, get, keyList, tr),
+                                            tr,
+                                            refs,
+                                            depth + 1));
 
                     sb.append(" )");rparen--;
                 }
@@ -1230,14 +1382,14 @@ class DebuggerOutput extends Thread {
                                   tr));
     }
 
-    private Value invokeRemoteMethod (ObjectReference o,
-                                      Method          m,
-                                      List<Value>     arguments,
-                                      ThreadReference tr) throws
-                                          InvalidTypeException,
-                                          ClassNotLoadedException,
-                                          IncompatibleThreadStateException,
-                                          InvocationException
+    private Value invokeRemoteMethod(ObjectReference o,
+                                     Method          m,
+                                     List<Value>     arguments,
+                                     ThreadReference tr) throws
+                                         InvalidTypeException,
+                                         ClassNotLoadedException,
+                                         IncompatibleThreadStateException,
+                                         InvocationException
     {
         return o.invokeMethod(tr, m, arguments, 0);
     }
@@ -1370,6 +1522,72 @@ class DebuggerOutput extends Thread {
         }
 
         return false;
+    }
+
+    /*
+      When we invoke a method on the target virtual machine, we unsuspend all
+      the threads on that machine for an instant. If one of those threads hits a
+      breakpoint, a breakpoint event will be posted to the event queue and
+      received by the EventReader thread at the same time we are waiting for the
+      result of the method on the target machine, causing a deadlock. So, we
+      disable all event requests before invoking a method. This will cause us to
+      miss the breakpoint event but it's unlikely that we will get into this
+      situation (although we did in testing) and there is, in any case, nothing
+      we can do (we could try interrupting the EventReader thread or polling the
+      event queue but decided not to on the grounds that it is too complex and
+      artificial).
+    */
+
+    private List<EventRequest> toEnable = null;
+
+    private void disableAllRequests() {
+
+        EventRequestManager erm       = vm.eventRequestManager();
+        List<EventRequest>  toDisable = new ArrayList<EventRequest>();
+
+        toEnable = new ArrayList<EventRequest>();
+
+        toDisable.addAll(erm.accessWatchpointRequests());
+        toDisable.addAll(erm.breakpointRequests());
+        toDisable.addAll(erm.classPrepareRequests());
+        toDisable.addAll(erm.classUnloadRequests());
+        toDisable.addAll(erm.exceptionRequests());
+        toDisable.addAll(erm.methodEntryRequests());
+        toDisable.addAll(erm.methodExitRequests());
+        toDisable.addAll(erm.modificationWatchpointRequests());
+        toDisable.addAll(erm.monitorContendedEnteredRequests());
+        toDisable.addAll(erm.monitorContendedEnterRequests());
+        toDisable.addAll(erm.monitorWaitedRequests());
+        toDisable.addAll(erm.monitorWaitRequests());
+        toDisable.addAll(erm.stepRequests());
+        toDisable.addAll(erm.threadDeathRequests());
+        toDisable.addAll(erm.threadStartRequests());
+        toDisable.addAll(erm.vmDeathRequests());
+
+        for (Iterator<EventRequest> it = toDisable.iterator();
+             it.hasNext();) {
+
+            EventRequest e = it.next();
+
+            if (e.isEnabled()) {
+                e.setEnabled(false);
+                toEnable.add(e);
+            }
+        }
+    }
+
+    private void renableAllRequests() {
+
+        if (toEnable != null) {
+
+            Iterator<EventRequest>  it = toEnable.iterator();
+
+            while (it.hasNext()) {
+                it.next().setEnabled(true);
+            }
+
+            toEnable = null;
+        }
     }
 
     class CommandDescription    {

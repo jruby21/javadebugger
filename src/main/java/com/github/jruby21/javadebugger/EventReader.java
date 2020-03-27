@@ -5,8 +5,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import com.sun.jdi.VirtualMachine;
 import com.sun.jdi.VMDisconnectedException;
 
-import com.sun.jdi.event.Event;
-import com.sun.jdi.event.EventIterator;
+import com.sun.jdi.event.EventSet;
 
 class EventReader extends Thread
 {
@@ -27,12 +26,8 @@ class EventReader extends Thread
 
             {
                 try {
-                    EventIterator it = vm.eventQueue().remove().eventIterator();
-
-                    while (it.hasNext()) {
-
-                        queue.add(new EventObject((Event) it.next()));
-                    }
+                    EventSet es = vm.eventQueue().remove();
+                    queue.add(new EventObject(es));
                 } catch (InterruptedException exc) {
                     // Do nothing. Any changes will be seen at top of loop.
                 } catch (VMDisconnectedException d) {
