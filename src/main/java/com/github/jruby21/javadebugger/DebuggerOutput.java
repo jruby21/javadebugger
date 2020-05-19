@@ -130,11 +130,11 @@ class DebuggerOutput extends Thread {
     private PrintStream                              out      = null;
 
     public  static final String NumberProperty = "breakpointNumber";
-    private static       int      bpcount           = 0;
+    private static          int      bpcount           = 0;
 
     private VirtualMachine    vm                 = null;
-    private int                   pcount             = 0;
-    private EventSet            lastEventSet      = null;
+    private int                          pcount             = 0;
+    private EventSet               lastEventSet      = null;
 
     private enum TOKEN { ACCESS, ARGUMENTS, ATTACH, BACK, BREAK, BREAKS, CATCH, CLASSES, CLEAR, DONE, FIELDS, INTO, LOCALS, MODIFY, NEXT, NUMBER, PREPARE, QUIT, RUN, STACK, STRING, THREAD, THIS};
 
@@ -574,19 +574,19 @@ class DebuggerOutput extends Thread {
                 break;
             }
         } catch (AbsentInformationException e) {
-            output_error(e.getMessage());
+            output_error(e.toString());
         } catch (ClassNotPreparedException e) {
-            output_error(e.getMessage());
+            output_error(e.toString());
         } catch (IncompatibleThreadStateException e) {
-            output_error(e.getMessage());
+            output_error(e.toString());
         } catch (InvalidStackFrameException e) {
-            output_error(e.getMessage());
+            output_error(e.toString());
         } catch (IllegalArgumentException e) {
-            output_error(e.getMessage());
+            output_error(e.toString());
         } catch (IndexOutOfBoundsException e) {
-            output_error(e.getMessage());
+            output_error(e.toString());
         } catch (UnsupportedOperationException e) {
-            output_error("Virtual machine does not support access watchpoints.");
+            output_error(e.toString());
         } catch (Throwable t) {
             output_internalException(t);
         }
@@ -594,11 +594,11 @@ class DebuggerOutput extends Thread {
 
     private void localVariables(String thread, String frame, String tok3, boolean isArgument) throws IncompatibleThreadStateException, AbsentInformationException
     {
-        ThreadReference   tr   = getThreadReference(thread);
-        StackFrame        sf   = tr.frame(Integer.parseInt(frame));
+        ThreadReference  tr        = getThreadReference(thread);
+        StackFrame            sf        = tr.frame(Integer.parseInt(frame));
         ArrayList<String> name = new ArrayList<String>();
-        ArrayList<Value>  val  = new ArrayList<Value>();
-        String []         refs = tok3.split("[.]");
+        ArrayList<Value> val      = new ArrayList<Value>();
+        String []                   refs    = tok3.split("[.]");
 
         // Why do we do this nonsense with the lists?  Because accessing the
         // virtual machine (in debuggerOutput.output_variable) to display
@@ -627,8 +627,8 @@ class DebuggerOutput extends Thread {
         while (itn.hasNext()) {
             out.print("(\"" + itn.next() + "\" " + outputValue(itv.next(), tr, refs, 1) + " ) ");
         }
-        renableAllRequests();
 
+        renableAllRequests();
         out.println(")");
     }
 
@@ -972,12 +972,12 @@ class DebuggerOutput extends Thread {
     public void output_internalException(Throwable t)
     {
         StringWriter sw = new StringWriter();
-        PrintWriter  pw = new PrintWriter(sw);
+        PrintWriter   pw = new PrintWriter(sw);
 
         t.printStackTrace(pw);
 
         out.println("\n" + INTERNALEXCEPTION_RESPONSE
-                    + "," + t.getMessage() + "," + sw.toString().replace('\n', '\t'));
+                    + "," + t.toString() + "," + sw.toString().replace('\n', '\t'));
     }
 
     private void outputLocation(Location loc) {
@@ -1230,11 +1230,11 @@ class DebuggerOutput extends Thread {
                                         depth + 1)
                           + ")");
             }
-        } catch (InvalidTypeException e) { nb = new StringBuilder();output_log(e.getMessage());
-        } catch (ClassNotLoadedException e) { nb = new StringBuilder();output_log(e.getMessage());
-        } catch (IncompatibleThreadStateException e) { nb = new StringBuilder();output_log(e.getMessage());
-        } catch (InvocationException e) { nb = new StringBuilder();output_log(e.getMessage());
-        } catch (IllegalArgumentException e) { nb = new StringBuilder();output_log(e.getMessage()); }
+        } catch (InvalidTypeException e) { nb = new StringBuilder();output_log(e.toString());
+        } catch (ClassNotLoadedException e) { nb = new StringBuilder();output_log(e.toString());
+        } catch (IncompatibleThreadStateException e) { nb = new StringBuilder();output_log(e.toString());
+        } catch (InvocationException e) { nb = new StringBuilder();output_log(e.toString());
+        } catch (IllegalArgumentException e) { nb = new StringBuilder();output_log(e.toString()); }
 
         sb.append(nb.toString() + " ) ");
     }

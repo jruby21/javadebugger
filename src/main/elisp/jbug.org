@@ -133,6 +133,11 @@ mode.
   org-mode "Jbug"
   "Major mode java debugger.")
 
+(defcustom jbug-mode-hook nil
+  "Mode hook for Org mode, run after the mode was turned on."
+  :group 'jbug
+  :type 'hook)
+
 (defvar jbug-defaultThread "1" "The last thread in which we had a breakpoint.  Use this thread if no thread number is specified in a command.")
 (defvar jbug-defaultFrame  0   "The frame to examine.")
 
@@ -570,9 +575,9 @@ list can change during execution; that is how we program the debugger.
   (or (ht-get env "jbug-name") "unnamed environment"))
 
 (defun jbug-addResponseTable  (name env)
-  (cond ((null name)    (message "Tried to add response table with null name"))
+  (cond ((s-blank? name)    (message "Tried to add response table with blank name"))
         ((null env)     (message "Tried to add a null response"))
-        ((member name (mapcar `jbug-getResponseTableName jbug-responseTables))
+        ((member env jbug-responseTables)
          (message "Tried to add duplicate response table (%s) to jbug-responseTables" name))
         (t              (progn
                           (ht-set env "jbug-name" name)
@@ -618,7 +623,9 @@ STRING is the input from the proxy"
         (setq jbug-receivedFromProxy ())
       (setq jbug-receivedFromProxy (-last-item com))
       (setq com                                    (-butlast com)))
-    (dolist (c com)
+
+(dolist (c com)
+
       (when (not (s-blank? c))
           (let ((response (mapcar 's-trim (split-string c ","))))
             (mapc
@@ -634,7 +641,11 @@ STRING is the input from the proxy"
                        (error-message-string err)
                        c
                        (jbug-getResponseTableName env)))))))
-             jbug-responseTables))
+             jbug-responseTables)
+
+            (when (string= (car response) jbug-command-ready-response)
+              (setq jbug-runningCommand ())))
+
           (jbug-fix-output-buffer proc)))))
 
 ;; make the output buffer right
@@ -965,13 +976,6 @@ LINE  - current line in source file"
              (format "%s\n" r))))
         `t))
 
-
-
-    (jbug-command-ready-response
-     `(lambda (env response)
-        (setq jbug-runningCommand ())
-        (jbug-execute-command)
-        `t))
 
 
     (jbug-error-response
@@ -1796,8 +1800,10 @@ PORT - port to which attach debugger"
                 (split-string
                  (format "break %s main;continue" expected)
                  ";" 't))
-            (jbug-removeResponseTable env)))))
+               (jbug-removeResponseTable env)))))
      ("EXPECTED" mn)))
+
+    (run-hooks `jbug-mode-hook)
 
     ;; start the proxy
 
