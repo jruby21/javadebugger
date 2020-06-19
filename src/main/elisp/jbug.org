@@ -610,6 +610,8 @@ up the output buffer.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 
+(defvar jbug-responseCommands ())
+
 (defun jbug-insertion-filter (proc string)
   "Receive input from the proxy process.
 PROC is the proxy process
@@ -618,14 +620,15 @@ STRING is the input from the proxy"
   (if (not (eq jbug-proxyProcess proc))
       (message "Error: expected proxy %s got proxy %s" jbug-proxyProcess proc))
   (setq jbug-receivedFromProxy (concat jbug-receivedFromProxy string))
+
   (let ((com (split-string jbug-receivedFromProxy "\n" 't)))
+
     (if (s-ends-with? "\n" string)
         (setq jbug-receivedFromProxy ())
       (setq jbug-receivedFromProxy (-last-item com))
       (setq com                                    (-butlast com)))
 
-(dolist (c com)
-
+    (dolist (c com)
       (when (not (s-blank? c))
           (let ((response (mapcar 's-trim (split-string c ","))))
             (mapc
@@ -646,7 +649,16 @@ STRING is the input from the proxy"
             (when (string= (car response) jbug-command-ready-response)
               (setq jbug-runningCommand ())))
 
-          (jbug-fix-output-buffer proc)))))
+          (jbug-fix-output-buffer proc)))
+
+    (when (not jbug-receivedFromProxy)
+      (if (not jbug-responseCommands)
+          (jbug-execute-command)
+        (let ((coms (s-join ";" (reverse jbug-responseCommands))))
+          (setq jbug-responseCommands ())
+          (goto-char (point-max))
+          (insert (format "\n%s" coms))
+          (jbug-newline))))))
 
 ;; make the output buffer right
 (defun jbug-fix-output-buffer (proc)
@@ -1259,16 +1271,12 @@ with a variable descriptor string.
  "arguments"
  (jbug-makeCommandHashEntry
   "arguments"
-  (lambda (c) (and (/= (length c) 1) (/= (length c) 2)))
-  "arguments [variable names]"
+  (lambda (c) (or (< (length c) 1) (> (length c) 4)))
+  "arguments  [variable names] [thread] [frame]"
   (lambda (proxy c)
     (process-send-string
      proxy
-     (format
-      "arguments,%s,%s,%s\n"
-      jbug-defaultThread
-      (number-to-string jbug-defaultFrame)
-      (setDotNotation (if (= (length c) 2) (nth 1 c) "")))))))
+     (jbug-dots c)))))
 
 #+END_SRC
 
@@ -1466,16 +1474,12 @@ with a variable descriptor string.
  "locals"
  (jbug-makeCommandHashEntry
   "locals"
-  (lambda (c) (and (/= (length c) 1) (/= (length c) 2)))
-  "locals [variable names]"
+  (lambda (c) (or (< (length c) 1) (> (length c) 4)))
+  "locals  [variable names] [thread] [frame]"
   (lambda (proxy c)
     (process-send-string
      proxy
-     (format
-      "locals,%s,%s,%s\n"
-      jbug-defaultThread
-      (number-to-string jbug-defaultFrame)
-      (setDotNotation (if (= (length c) 2) (nth 1 c) "")))))))
+     (jbug-dots c)))))
 
 #+END_SRC
 
@@ -1679,16 +1683,12 @@ and default frame.
  "this"
  (jbug-makeCommandHashEntry
   "this"
-  (lambda (c) (and (/= (length c) 1) (/= (length c) 2)))
-  "this [default-thread-id] [default-frame number]"
+  (lambda (c) (or (< (length c) 1) (> (length c) 4)))
+  "this  [variable names]  [thread]  [frame]"
   (lambda (proxy c)
     (process-send-string
      proxy
-     (format
-      "this,%s,%s,%s\n"
-      jbug-defaultThread
-      (number-to-string jbug-defaultFrame)
-      (setDotNotation (if (= (length c) 2) (nth 1 c) "")))))))
+     (jbug-dots c)))))
 
 #+END_SRC
 
@@ -1742,6 +1742,18 @@ jbug-commandHashMap
   "Return a string describing the location descriptor list L"
   (format "%s:%s %s" (locationFile l) (locationLineNumber l) (locationMethod l)))
 
+(defun jbug-dots (c)
+  (let ((a (concat (nth 0 c)  ",%s,%s,%s\n")))
+    (cond
+      ((= (length c) 1)
+       (format a  jbug-defaultThread jbug-defaultFrame (setDotNotation "")))
+      ((= (length c) 2)
+       (format a jbug-defaultThread jbug-defaultFrame (setDotNotation (nth 1 c))))
+      ((= (length c) 3)
+       (format a (nth 2 c) jbug-defaultFrame (setDotNotation (nth 1 c))))
+      ((= (length c) 4)
+       (format a (nth 2 c) (nth 3 c)  (setDotNotation (nth 1 c)))))))
+
 (defun setDotNotation(a)
 "Put array string into dot notation for proxy."
   (setq a (s-trim a))
@@ -1788,18 +1800,18 @@ PORT - port to which attach debugger"
       (ht
        (jbug-vmStarted-response
         `(lambda (env response)
-               (jbug-add-commands
-                (split-string
-                 (format "catch on;prepare %s" (ht-get env "EXPECTED"))
-                 ";" 't))))
+           (setq jbug-responseCommands
+                 (cons
+                  (format "catch on;prepare %s" (ht-get env "EXPECTED"))
+                  jbug-responseCommands))))
       (jbug-classPrepared-response
         `(lambda (env response)
            (let ((expected (ht-get env "EXPECTED")))
              (when (string= expected (nth 1 response))
-               (jbug-add-commands
-                (split-string
-                 (format "break %s main;continue" expected)
-                 ";" 't))
+               (setq jbug-responseCommands
+                     (cons
+                      (format "break %s main;continue" expected)
+                      jbug-responseCommands))
                (jbug-removeResponseTable env)))))
      ("EXPECTED" mn)))
 

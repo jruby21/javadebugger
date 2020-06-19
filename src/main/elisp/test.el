@@ -13,49 +13,101 @@
   (setq jbug-proxy-command "java -cp /home/jruby/dev/javadebugger/src/main/java/jbug.jar:/home/jruby/dev/javadebugger/src/main/java/tools.jar com.github.jruby21.javadebugger.JavaDebuggerProxy")
   (jbug "/home/jruby/dev/javadebugger/src/main/java" "test.foo" "127.0.0.1" "8000"))
 
+
+(defvar jbug-testState    0)
+(defvar jbug-testThread 0)
+(defvar jbug-test-steps   ())
+
+(defun jbug-testStepResp (resp com)
+  (let ((tr (-slice resp 1 7)))
+    (message "teststateresp %s %s %s %s" (car resp) resp com tr)
+    (when
+        (and
+         (string= (car resp)  jbug-step-response)
+         (= jbug-testThread (threadID tr)))
+      (jbug-add-commands (split-string com ";" 't))
+      (setq jbug-testState (1+ jbug-testState)))))
+
+(defun jbug-testResponse (env response)
+  (let ((resp (mapcar 's-trim (split-string response ","))))
+    (message "%s, %s, %s" (car resp) (-slice resp 8) (-slice resp 2 8))
+    (cond
+     ((and
+       (= jbug-testState 0)
+       (string= (car resp)  jbug-breakpointEntered-response)
+       (string= "main"   (locationMethod (-slice resp 8))))
+      (let ((tr             (-slice resp 2 8)))
+        (setq jbug-testThread (threadID tr))
+        (message "%s | %s" tr jbug-testThread)
+;;        (jbug-add-commands
+;;         (split-string (format "next %s" jbug-testThread) ";" 't))
+        (message "end %s"  jbug-testState)
+        (setq jbug-testState 1)))
+
+     ((or (= jbug-testState 1) (= jbug-testState 2))
+      (jbug-testStepResp resp  (format "next %s" jbug-testThread)))
+
+     ((= jbug-testState 3)
+      (jbug-testStepResp     resp     (format "locals %s 0;break test.foo 44;continue"  jbug-testThread)))
+
+     ((and
+       (= jbug-testState 4)
+       (string= (car resp) jbug-breakpointEntered-response)
+       (string= "44"   (locationLineNumber (-slice resp 8))))
+      (let ((tr             (-slice resp 2 8)))
+        (setq jbug-testThread (threadID tr))
+        (jbug-add-commands
+         (split-string (format "into %s" jbug-testThread) ";" 't))
+        (setq jbug-testState 5))))))
+
 (defun jbug-TestWaitForInitialisation ()
-    (jbug-addResponseTable
+
+  (setq
+   jbug-test-steps
+   (list
+    (list jbug-breakpointEntered-response "main" "" `(format "next %s" jbug-testThread))
+    (list jbug-step-response `(format "next %s" jbug-testThread))
+    (list jbug-step-response  `(format "next %s" jbug-testThread))
+    (list jbug-step-response  `(format "locals * %s 0;break test.foo 44;continue"  jbug-testThread))
+    (list jbug-breakpointEntered-response "" "44"
+          `(format "locals * %s 0;stack %s;next %s" jbug-testThread jbug-testThread jbug-testThread))
+    (list jbug-step-response  `(format "next %s" jbug-testThread))
+    (list jbug-step-response  `(format "into %s" jbug-testThread))
+    (list jbug-step-response  `(format "next %s" jbug-testThread))
+    (list jbug-step-response  `(format "next %s" jbug-testThread))
+    (list jbug-step-response  `(format "next %s" jbug-testThread))
+    (list jbug-step-response  `(format "classes;access test.foo$XThread first"))))
+
+
+  (jbug-addResponseTable
    "setup test script"
    (ht
     (jbug-breakpointEntered-response
-     `(lambda (env response)
-        (when (string= "main"   (locationMethod (-slice response 8)))
-          (jbug-TestJbug)
-          (jbug-removeResponseTable env))))))
-   (message "second running jbug-mode-hook to %s" (length  jbug-responseTables)))
-
-(defun jbug-TestCommand (env response)
-  (let ((script (ht-get env "SCRIPT")))
-    (when (and script (string= (car response) (car (car script))))
-        (jbug-add-commands
-         (split-string (cdr (car script)) ";" 't))
-        (setq script (cdr script)))
-    (ht-set env "SCRIPT" script)
-    (if (not script)
-        (jbug-removeResponseTable env))))
-
-(defun jbug-TestJbug ()
-  (interactive)
-  (message "running jbug-Testjbug %s" (length  jbug-responseTables))
-  (jbug-addResponseTable
-   "jbug-Testbug environment"
-   (ht
-    (jbug-breakpointEntered-response
-     `jbug-TestCommand)
+     `(lambda (env resp)
+        (let* ((step (car jbug-test-steps)))
+          (when
+              (and
+               (string= jbug-breakpointEntered-response (car step))
+               (or
+                (string= (nth 1 step)   (locationMethod (-slice resp 8)))
+                (string= (nth 2 step)   (locationLineNumber (-slice resp 8)))))
+            (setq jbug-testThread (threadID (-slice resp 2 8)))
+            (setq jbug-responseCommands
+                  (cons
+                   (eval (nth 3 step))
+                   jbug-responseCommands))
+            (setq jbug-test-steps (cdr jbug-test-steps))
+            (if (not jbug-test-steps) (jbug-removeResponseTable env))))))
     (jbug-step-response
-     `jbug-TestCommand)
-    ("SCRIPT"
-     (list
-      (cons jbug-step-response "next")
-      (cons jbug-step-response "next")
-      (cons jbug-step-response "locals;break test.foo 44;continue")
-      (cons jbug-breakpointEntered-response "locals;stack;next")
-      (cons jbug-step-response "into")
-      (cons jbug-step-response "next")
-      (cons jbug-step-response "stack;locals;threads;breaks;next")
-      (cons jbug-step-response "next")
-      (cons jbug-step-response "classes;access test.foo$XThread first;continue")))))
-
-  (message "running second  jbug-Testjbug %s" (length  jbug-responseTables))
-   (jbug-add-commands
-    (split-string "next" ";" 't)))
+     `(lambda (env resp)
+        (let* ((step (car jbug-test-steps)))
+          (when
+              (and
+               (string= jbug-step-response (car step))
+               (string= jbug-testThread (threadID (-slice resp 1 7))))
+            (setq jbug-responseCommands
+                  (cons
+                   (eval (nth 1 step))
+                   jbug-responseCommands))
+            (setq jbug-test-steps (cdr jbug-test-steps))
+            (if (not jbug-test-steps) (jbug-removeResponseTable env)))))))))
