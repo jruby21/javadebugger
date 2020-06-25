@@ -1409,7 +1409,7 @@ Set the default frame to the frame directly below the current default frame.
  jbug-commandHashMap
  "down"
    (jbug-makeCommandHashEntry "down"
-                               (lambda (c) nil)
+                              (lambda (c) (and (/= (length c) 1) (/= (length c) 2)))
                                "down"
                                (lambda (proxy c)
                                  (setq jbug-defaultFrame (1+ jbug-defaultFrame))
@@ -1417,7 +1417,7 @@ Set the default frame to the frame directly below the current default frame.
                                   proxy
                                   (format
                                    "stack,%s\n"
-                                   jbug-defaultThread)))))
+                                   (if (= 1 (length c)) jbug-defaultThread (nth 1 c)))))))
 #+END_SRC
 
 **** fields
@@ -1660,14 +1660,14 @@ Print the stack of method calls which have brought us to this point.
  jbug-commandHashMap
  "stack"
    (jbug-makeCommandHashEntry "stack"
-                               (lambda (c) (/= (length c) 1))
-                               "stack"
+                               (lambda (c) (and (/= (length c) 1) (/= (length c) 2)))
+                               "stack [thread]"
                                (lambda (proxy c)
                                  (process-send-string
                                   proxy
                                   (format
                                    "stack,%s\n"
-                                   jbug-defaultThread)))))
+                                   (if (= 1 (length c)) jbug-defaultThread (nth 1 c)))))))
 
 #+END_SRC
 
