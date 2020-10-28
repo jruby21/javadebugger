@@ -822,7 +822,8 @@ LINE  - current line in source file"
     win))
 #+END_SRC
 
-** Commands and responses
+** Commands and Responses
+*** Responses
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el#+BEGIN_SRC emacs-lisp :tangle jbug.el
 (defconst jbug-accessWatchpoint-response "accesswatchpoint" "Keyword identifying response string from buffer.")
@@ -871,8 +872,8 @@ LINE  - current line in source file"
 
     (jbug-accessWatchpointSet-response
      `(lambda (env response)
-        (let ((field  (nth 1 response))
-              (class (nth 2 response)))
+        (let ((class  (nth 1 response))
+              (field (nth 2 response)))
           (writeStringToBuffer
            proc
            (concat
@@ -1230,6 +1231,7 @@ LINE  - current line in source file"
 
 #+END_SRC
 
+*** Commands
 **** access
 
 Set an access watchpoint.

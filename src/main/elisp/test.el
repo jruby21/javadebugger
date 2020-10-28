@@ -1,7 +1,7 @@
 (defun jbugTest ()
   (interactive)
 
-  (start-process "testProc" "*testProc*" "/home/jruby/tools/jdk1.8.0_131/bin/java" "-cp" "/home/jruby/dev/javadebugger/src/main/java:/home/jruby/dev/javadebugger/src/main/java/tools.jar" "-agentlib:jdwp=transport=dt_socket,address=localhost:8000,server=y,suspend=y" "test.foo" "3" "4")
+  (start-process "testProc" "*testProc*" "java" "-cp" "/home/jruby/dev/javadebugger/src/main/java" "-agentlib:jdwp=transport=dt_socket,address=localhost:8000,server=y,suspend=y" "test.foo" "3" "4")
 
   (load-file "/home/jruby/dev/javadebugger/src/main/elisp/jbug.el")
   (load-file "/home/jruby/dev/javadebugger/src/main/elisp/test.el")
@@ -10,9 +10,8 @@
    `jbug-mode-hook
    `jbug-TestWaitForInitialisation)
 
-  (setq jbug-proxy-command "java -cp /home/jruby/dev/javadebugger/src/main/java/jbug.jar:/home/jruby/dev/javadebugger/src/main/java/tools.jar com.github.jruby21.javadebugger.JavaDebuggerProxy")
+  (setq jbug-proxy-command "java -cp /home/jruby/dev/javadebugger/src/main/java/jbug.jar com.github.jruby21.javadebugger.JavaDebuggerProxy")0
   (jbug "/home/jruby/dev/javadebugger/src/main/java" "test.foo" "127.0.0.1" "8000"))
-
 
 (defvar jbug-testState    0)
 (defvar jbug-testThread 0)
@@ -76,7 +75,11 @@
     (list jbug-step-response  `(format "next %s" jbug-testThread))
     (list jbug-step-response  `(format "next %s" jbug-testThread))
     (list jbug-step-response  `(format "next %s" jbug-testThread))
-    (list jbug-step-response  `(format "classes;access test.foo$XThread first"))))
+    (list jbug-step-response  `(format "classes;access test.foo$XThread first;stack;back"))
+    (list jbug-step-response  `(format "stack;continue"))
+    (list jbug-accessWatchpoint-response
+    ))
+
 
 
   (jbug-addResponseTable
