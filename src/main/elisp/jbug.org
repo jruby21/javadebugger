@@ -879,24 +879,22 @@ LINE  - current line in source file"
            (concat
             "Access watchpoint set for field "
             field
-            " in class " class ".\n")))))
-
+            " in class " class ".\n"))))
+)
 
     (jbug-accessWatchpoint-response
      `(lambda (env response)
-        (let ((breakId     (nth 1 response))
-              (tr                  (-slice response 2 8))
-              (loc               (-slice response 8))
-              (className (nth 11 response))
-              (fieldName  (nth 12 response))
-              (value          (nth 0 (read-from-string (nth 13 response)))))
-          (reportBreak (concat "Access watchpoint " breakId " entered") tr loc)
+        (let ((tr                  (-slice response 1 7))
+              (loc               (-slice response 7))
+              (className (nth 10 response))
+              (fieldName  (nth 11 response))
+              (value          (nth 0 (read-from-string (nth 12 response)))))
+          (reportBreak (concat "Access watchpoint  entered") tr loc)
           (writeOrgTableToBuffer
            jbug-proxyProcess
            "|Class:Field|Value|\n"
            jbug-orgTableSeperator
-           (list (concat className ":" fieldName) value)))
-        `t))
+           (list (concat className ":" fieldName) (list "current" value))))))
 
 
     (jbug-arguments-response
@@ -1067,24 +1065,29 @@ LINE  - current line in source file"
 
     (jbug-modificationWatchpoint-response
      `(lambda (env response)
-        (let
-            ((className              (nth 1 response))
-             (fieldName               (nth 2 response))
-             (past                         (nth 0 (read-from-string (nth 3 response))))
-             (future                      (nth 0 (read-from-string (nth 4 response)))))
-          (writeStringToBuffer jbug-proxyProcess "Modification watchpoint\n")
+        (let ((tr                 (-slice response 1 7))
+              (loc                 (-slice response 7))
+              (className (nth 10 response))
+              (fieldName  (nth 11 response))
+              (old                (nth 0 (read-from-string (nth 12 response))))
+             (new              (nth 0 (read-from-string (nth 13 response)))))
+          (reportBreak (concat "Modification watchpoint  entered") tr loc)
           (writeOrgTableToBuffer
            jbug-proxyProcess
-           "| Object:Field | When | Value |\n"
+           "|Class:Field|Value|\n"
            jbug-orgTableSeperator
-           (list (concat className ":" fieldName) (list "Before" past) (list "After" future))))
-        `t))
-
+           (list (concat className ":" fieldName) (list "current" old) (list "new" new))))))
 
     (jbug-modificationWatchpointSet-response
      `(lambda (env response)
-        (writeStringToBuffer proc (concat "Modification watchpoint set.\n"))
-        `t))
+        (let ((class  (nth 1 response))
+              (field (nth 2 response)))
+        (writeStringToBuffer
+         proc
+         (concat
+          "Modification watchpoint set for field "
+          field
+          " in class " class ".\n")))))
 
 
     (jbug-preparingClass-response

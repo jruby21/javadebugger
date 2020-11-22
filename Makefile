@@ -8,7 +8,6 @@ package: $(PACKAGE_DIR)
 	cp UsersManual.texi        $(PACKAGE_DIR)/doc
 	cp UsersManual.info        $(PACKAGE_DIR)/doc
 	cp UsersManual.org         $(PACKAGE_DIR)/doc
-	cp src/main/java/tools.jar $(PACKAGE_DIR)
 	cp src/main/java/jbug.jar  $(PACKAGE_DIR)
 	cp src/main/elisp/jbug.el  $(PACKAGE_DIR)
 	sed -re "s/VERSION/$(VERSION)/" jbug-package-template.el > $(PACKAGE_DIR)/jbug-package.el

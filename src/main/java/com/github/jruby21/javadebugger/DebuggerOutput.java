@@ -470,9 +470,8 @@ class DebuggerOutput extends Thread {
 
                             w = vm.eventRequestManager().createModificationWatchpointRequest(ff);
                         }
-
                         w.setEnabled(true);
-                        out.println(MODIFICATIONWATCHPOINTSET_RESPONSE);
+                        out.println(MODIFICATIONWATCHPOINTSET_RESPONSE + "," + tokens [1] + "," + tokens [2]);
                     }
                 } catch (ClassNotPreparedException c) {
                     output_error("Class " + tokens [1] + " not prepared.");
@@ -759,18 +758,17 @@ class DebuggerOutput extends Thread {
             if (event instanceof AccessWatchpointEvent) {
                 AccessWatchpointEvent ae = (AccessWatchpointEvent) event;
 
-                out.print(ACCESSWATCHPOINT_RESPONSE + ",7");
+                out.print(ACCESSWATCHPOINT_RESPONSE);
                 outputThreadReference(ae.thread());
                 outputLocation(ae.location());
                 out.println("," + ae.object().referenceType().name() + ","
                             + ae.field().name()
-                            + ",("
-                            + outputSingleLevelValue(ae.valueCurrent(), ae.thread())
-                            + ")");
+                            + ","
+                            + outputSingleLevelValue(ae.valueCurrent(), ae.thread()));
 
                 // if you want a step to work and not invoke this breakpoint
                 // again.
-                event.request().setEnabled(false);
+                ae.request().setEnabled(false);
 
                 return false;
             }
@@ -838,16 +836,16 @@ class DebuggerOutput extends Thread {
                 ModificationWatchpointEvent me = (ModificationWatchpointEvent) event;
 
                 out.print(MODIFICATIONWATCHPOINT_RESPONSE);
+                outputThreadReference(me.thread());
                 outputLocation(me.location());
-                out.println("," + me.object().referenceType().name() + "," + me.field().name() + ",("
+                out.println("," + me.object().referenceType().name() + "," + me.field().name() + ","
                             + outputSingleLevelValue(me.valueCurrent(), me.thread())
-                            + "),("
-                            + outputSingleLevelValue(me.valueToBe(), me.thread())
-                            + ")");
+                            + ","
+                            + outputSingleLevelValue(me.valueToBe(), me.thread()));
 
                 // if you want a step to work and not invoke this breakpoint
                 // again.
-                event.request().setEnabled(false);
+                me.request().setEnabled(false);
 
                 return false;
             }
