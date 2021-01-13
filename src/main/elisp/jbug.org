@@ -24,35 +24,34 @@ be saved or exported as the user desires.
 
 The debugger is basicly four command streams and the code to handle them.
 
-The first command stream is the input from the user to the elisp program. The
-commands are seperated by newlines and each command is a series of ASCII tokens
-seperated by spaces. The first token in a line identifies the command and the
-rest of the tokens are arguments to that command. The first token is used as the
-key to a hash table (jbug-commandHashMap), the entry in the hash table describes the
+The first command stream is the user's input to the elisp program. The commands
+are seperated by newlines and each command is a series of ASCII tokens seperated
+by spaces. The first token in a line identifies the command and the rest of the
+tokens are arguments to that command. The first token is the key to a hash table
+(jbug-commandHashMap), the entry in the hash table describes the action to be
+taken on receipt of the command.
+
+The elisp program writes the second command stream to its standard output while
+the JAVA proxy reads it from its standard input.  The commands are seperated by
+newlines, each command is a series of ASCII tokens, seperated by commas. The
+first token names the command and is the key to a hash table identifying the
 action to be taken on receipt of the command.
 
-The second command steam is output from the elisp program and read by the JAVA
-proxy on its standard input. The commands are seperated by newlines, each
-command is a series of ASCII tokens, seperated by commas. The first token names
-the command and is the key to a hash table identifying the action to be taken on
-receipt of the command. See the file JavaDebggerProxy.java.
-
 The third command stream is a queue of objects signalling asynchronous
-events. The stream is created by the JDI package and is read by an independent
-thread which waits on the queue and dequeues the events in sequence. See
-EventReader.java.
-:wrong:
-The fourth command stream is produced by the JAVA proxy in response to commands
-from the elisp program and events from the JDI interface. The proxy writes this
-stream to its standard out and the elisp program receives it. The stream
-consists of commands seperated by newlines. Each command is a sequence of ASCII
-tokens seperated by commas. The first token identifies the command and is the
-key to a hash table (jbug-response-hash-table) in the elisp program which
+events. The JDI creates the third stream and a thread  in the JAVA proxy reads
+it.
+
+The JAVA proxy writes the fourth command stream to its standard output. The
+elisp program reads it from its standard input. The stream is a sequence of
+ASCII tokens seperated by newlines. Each line is a command is a series of tokens
+seperated by commas. The first token first token identifies the command and is
+the key to a hash table (jbug-response-hash-table) in the elisp program which
 describes the action to be taken on receipt of the command.
 
-There is some code in the elisp to display data read from the debugger proxy and
-some code in the debugger proxy to look inside of variables (DebuggerOutput.java).
-That's about it.
+The elisp program contains code to create and respond to each command it sends
+and receives. There is some code in the elisp program to display data read from
+the debugger proxy and some code in the debugger proxy to look inside of
+variables (DebuggerOutput.java).  That's about it.
 
 ** Boilerplate
 
