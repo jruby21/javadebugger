@@ -184,7 +184,11 @@ class DebuggerOutput extends Thread {
     public void command(String s) {
 
         if (!s.isEmpty()) {
-            executeCommand(s);
+            try {
+                executeCommand(s);
+            } catch (Throwable t) {
+                output_internalException(t);
+            }
             out.println(COMMAND_READY_RESPONSE);
         }
     }
