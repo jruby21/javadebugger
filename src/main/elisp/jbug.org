@@ -605,6 +605,9 @@ the output buffer.
 
 (defvar jbug-responseCommands ())
 
+(defun jbug-addResponseCommand (s)
+       (setq jbug-responseCommands (cons s jbug-responseCommands)))
+
 (defun jbug-insertion-filter (proc string)
   "Receive input from the proxy process.
 PROC is the proxy process
@@ -1172,12 +1175,14 @@ LINE  - current line in source file"
 
     (jbug-vmDied-response
      `(lambda (env response)
-        (writeStringToBuffer jbug-proxyProcess "virtual machine terminated\n")))
+        (writeStringToBuffer jbug-proxyProcess "virtual machine terminated\n")
+        (jbug-addResponseCommand "quit")))
 
 
     (jbug-vmDisconnected-response
      `(lambda (env response)
-        (writeStringToBuffer jbug-proxyProcess "virtual machine disconnected\n")))
+        (writeStringToBuffer jbug-proxyProcess "virtual machine disconnected\n")
+        (jbug-addResponseCommand "quit")))
 
 
     (jbug-vmResumed-response
@@ -1783,18 +1788,12 @@ PORT - port to which attach debugger"
       (ht
        (jbug-vmStarted-response
         `(lambda (env response)
-           (setq jbug-responseCommands
-                 (cons
-                  (format "catch on;prepare %s" (ht-get env "EXPECTED"))
-                  jbug-responseCommands))))
+           (jbug-addResposeCommand (format "catch on;prepare %s" (ht-get env "EXPECTED")))))
       (jbug-classPrepared-response
         `(lambda (env response)
            (let ((expected (ht-get env "EXPECTED")))
              (when (string= expected (nth 1 response))
-               (setq jbug-responseCommands
-                     (cons
-                      (format "break %s main;continue" expected)
-                      jbug-responseCommands))
+               (jbug-addResponseCommand (format "break %s main;continue" expected))
                (jbug-removeResponseTable env)))))
      ("EXPECTED" mn)))
 

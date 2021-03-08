@@ -673,11 +673,18 @@ class DebuggerOutput extends Thread {
         }
     }
 
-    private void step(String threadId, int size, int depth)  {
+    private void step(String threadId, int size, int depth)  throws IncompatibleThreadStateException {
 
         ThreadReference tr = getThreadReference(threadId);
 
         if (tr != null)  {
+
+            if (StepRequest.STEP_OUT == depth
+                && tr.frames().size() == 1) {
+
+                output_error("Stack is empty");
+                return;
+            }
 
             List<StepRequest> srl = vm.eventRequestManager().stepRequests();
             StepRequest       sr  = null;

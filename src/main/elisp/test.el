@@ -29,22 +29,21 @@
            ((lm (locationMethod (-slice resp 8)))
             (ln (locationLineNumber (-slice resp 8)))
             (jbug-testThread  (threadID (-slice resp 2 8))))
-         (setq jbug-responseCommands
-               (cons
-                (cond
-                 ((and (string= lm "main") (not (string= ln "44")))
-                  (format "breaks;clear all;breaks;break test.foo 44;break test.foo sum;next %s;next %s;next %s;locals * %s 0;continue"
-                          jbug-testThread jbug-testThread jbug-testThread  jbug-testThread))
-                 ((and (string= lm "main") (string= ln "44"))
-                  (format "locals * %s 0;stack %s;next %s;next %s;into %s;next %s;next %s;next %s;classes;fields test.tree.Node;stack %s;back %s;stack %s;continue"
-                          jbug-testThread jbug-testThread jbug-testThread  jbug-testThread  jbug-testThread
-                          jbug-testThread jbug-testThread jbug-testThread  jbug-testThread  jbug-testThread
-                          jbug-testThread))
-                 ((string= lm "sum")
-                  (format "threads;arguments * %s;arguments f %s;arguments f.a  %s;arguments arr.1 %s;arguments arr.5-60 %s;arguments arr.58 %s;this;continue"
-                          jbug-testThread jbug-testThread jbug-testThread  jbug-testThread  jbug-testThread
-                          jbug-testThread)))
-                jbug-responseCommands)))))
+         (jbug-addResponseCommand
+          (cond
+           ((and (string= lm "main") (not (string= ln "44")))
+            (format "breaks;clear all;breaks;break test.foo 44;break test.foo sum;next %s;next %s;next %s;locals * %s 0;continue"
+                    jbug-testThread jbug-testThread jbug-testThread  jbug-testThread))
+           ((and (string= lm "main") (string= ln "44"))
+            (format "locals * %s 0;stack %s;next %s;next %s;into %s;next %s;next %s;next %s;next %s; next %s;classes;fields test.tree.Node;stack %s;back %s;stack %s;continue"
+                    jbug-testThread jbug-testThread jbug-testThread  jbug-testThread  jbug-testThread  jbug-testThread  jbug-testThread
+
+                    jbug-testThread jbug-testThread jbug-testThread  jbug-testThread  jbug-testThread
+                    jbug-testThread))
+           ((string= lm "sum")
+            (format "threads;arguments * %s;arguments f %s;arguments f.a  %s;arguments arr.1 %s;arguments arr.5-60 %s;arguments arr.58 %s;this;continue"
+                    jbug-testThread jbug-testThread jbug-testThread  jbug-testThread  jbug-testThread
+                    jbug-testThread)))))))
 
     (jbug-accessWatchpoint-response
      `(lambda (env  resp)
