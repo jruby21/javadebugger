@@ -41,7 +41,7 @@
                     jbug-testThread jbug-testThread jbug-testThread  jbug-testThread  jbug-testThread
                     jbug-testThread))
            ((string= lm "sum")
-            (format "threads;arguments * %s;arguments f %s;arguments f.a  %s;arguments arr.1 %s;arguments arr.5-60 %s;arguments arr.58 %s;this;continue"
+            (format "threads;arguments * %s;arguments f %s;arguments f.a  %s;arguments arr.1 %s;arguments arr.5-60 %s;arguments arr.58 %s;this"
                     jbug-testThread jbug-testThread jbug-testThread  jbug-testThread  jbug-testThread
                     jbug-testThread)))))))
 

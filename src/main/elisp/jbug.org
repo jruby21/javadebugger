@@ -1788,12 +1788,16 @@ PORT - port to which attach debugger"
       (ht
        (jbug-vmStarted-response
         `(lambda (env response)
-           (jbug-addResposeCommand (format "catch on;prepare %s" (ht-get env "EXPECTED")))))
-      (jbug-classPrepared-response
+           (jbug-addResponseCommand (format "catch on;prepare %s" (ht-get env "EXPECTED")))))
+       (jbug-vmDied-response
+        `(lambda (env response)
+          (writeStringToBuffer jbug-proxyProcess "If the virtual machine terminates immediately perhaps the process to be debugged is not running.\n")))
+        (jbug-classPrepared-response
         `(lambda (env response)
            (let ((expected (ht-get env "EXPECTED")))
              (when (string= expected (nth 1 response))
-               (jbug-addResponseCommand (format "break %s main;continue" expected))
+
+(jbug-addResponseCommand (format "break %s main;continue" expected))
                (jbug-removeResponseTable env)))))
      ("EXPECTED" mn)))
 
