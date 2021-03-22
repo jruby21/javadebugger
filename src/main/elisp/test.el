@@ -1,3 +1,5 @@
+;; -*- lexical-binding: t; -*-
+
 (require 'dash)
 
 (add-to-list 'load-path ".")
