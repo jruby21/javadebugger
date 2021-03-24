@@ -16,7 +16,7 @@
 
   (add-hook
    `jbug-mode-hook
-   `jbug-TestWaitForInitialisation)
+   (function jbug-TestWaitForInitialisation))
 
   (setq jbug-proxy-command "java -cp /home/jruby/dev/javadebugger/src/main/java/jbug.jar com.github.jruby21.javadebugger.JavaDebuggerProxy")0
   (jbug "/home/jruby/dev/javadebugger/src/main/java" "test.foo" "127.0.0.1" "8000"))
@@ -26,7 +26,7 @@
    "setup test script"
    (ht
     (jbug-breakpointEntered-response
-     `(lambda (env resp)
+     (function (lambda (_env resp)
        (let
            ((lm (locationMethod (-slice resp 8)))
             (ln (locationLineNumber (-slice resp 8)))
@@ -45,12 +45,12 @@
            ((string= lm "sum")
             (format "threads;arguments * %s;arguments f %s;arguments f.a  %s;arguments arr.1 %s;arguments arr.5-60 %s;arguments arr.58 %s;this;down;arguments;up;modify test.foo b;continue"
                     jbug-testThread jbug-testThread jbug-testThread  jbug-testThread  jbug-testThread
-                    jbug-testThread)))))))
+                    jbug-testThread))))))))
 
     (jbug-accessWatchpoint-response
-     `(lambda (env  resp)
-       ()))
+     (function (lambda (_env  _resp)
+       ())))
 
     (jbug-modificationWatchpoint-response
-     `(lambda (env  resp)
-        (jbug-addResponseCommand "access test.foo b;continue"))))))
+     (function (lambda (_env  _resp)
+        (jbug-addResponseCommand "access test.foo b;continue")))))))

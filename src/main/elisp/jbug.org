@@ -11,9 +11,10 @@ emacs mode as a front end.
 
 Its overall design is also similar to jdb. There is an elisp program which
 implements an emacs mode - in this case a minor mode called jbug-mode
-derived from Org mode - and an proxy program written in JAVA which uses the JAVA
+derived from Org mode - and a proxy program written in JAVA which uses the JAVA
 JDI interface to communicate with the program to be debugged and stdin/stdout to
-communicate with the elisp program.
+communicate with the elisp program. The JAVA proxy program is specially written
+for use with the emacs mode.
 
 JbugMode has certain advantages over jdb. For one, it works. For another,
 it is easy to install and configure. Also, JbugMode looks into variables;
@@ -649,9 +650,9 @@ STRING is the input from the proxy"
 
           (jbug-fix-output-buffer proc)))
 
-    ; check if it's time to execute a waiting command
-    ; sometimes responses will queue commands to be executed. Add them
-    ; to the waiting queue when everything has calmed down.
+    ; Check if it's time to execute a waiting command. Sometimes responses will
+    ; queue commands to be executed. Add them to the waiting queue when
+    ; everything has calmed down.
 
     (when (not jbug-receivedFromProxy)
       (if (not jbug-responseCommands)
@@ -873,7 +874,7 @@ LINE  - current line in source file"
    (ht
 
     (jbug-accessWatchpointSet-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let ((class  (nth 1 response))
               (field (nth 2 response)))
           (writeStringToBuffer
@@ -881,11 +882,10 @@ LINE  - current line in source file"
            (concat
             "Access watchpoint set for field "
             field
-            " in class " class ".\n"))))
-)
+            " in class " class ".\n"))))))
 
     (jbug-accessWatchpoint-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let ((tr                  (-slice response 1 7))
               (loc               (-slice response 7))
               (className (nth 10 response))
@@ -896,11 +896,11 @@ LINE  - current line in source file"
            jbug-proxyProcess
            "|Class:Field|Value|\n"
            jbug-orgTableSeperator
-           (list (concat className ":" fieldName) (list "current" value))))))
+           (list (concat className ":" fieldName) (list "current" value)))))))
 
 
     (jbug-arguments-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let
             ((thread (nth 1 response))
              (frame (nth 2 response))
@@ -912,66 +912,63 @@ LINE  - current line in source file"
            jbug-proxyProcess
            "| Name | Value |\n"
            jbug-orgTableSeperator
-           th))))
+           th)))))
 
 
     (jbug-breakpointCleared-response
-     `(lambda (env response)
-        (jbug-display-breakpoints((mapcar
-                                   (lambda (x)
-                                     (list
-                                      (car x)
-                                      (-slice x 1)))
-                                   (-partition-in-steps 4 4 (-slice response  1)))))))
+     (function (lambda (_env response)
+        (jbug-display-breakpoints
+         (mapcar
+          (lambda (x)  (list (car x) (-slice x 1)))
+          (-partition-in-steps 4 4 (-slice response  1)))))))
 
 
     (jbug-breakpointCreated-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let
             (( breakId (nth 1 response))
              (loc          (-slice response 2 5)))
-          (writeStringToBuffer proc (concat "Breakpoint  " breakId " created at " (jbug-LocationString loc)  ".\n")))))
+          (writeStringToBuffer proc (concat "Breakpoint  " breakId " created at " (jbug-LocationString loc)  ".\n"))))))
 
 
     (jbug-breakpointEntered-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let
             ((breakId  (nth 1 response))
              (tr             (-slice response 2 8))
              (loc          (-slice response 8)))
-          (reportBreak (concat "Breakpoint " breakId " entered") tr loc))))
+          (reportBreak (concat "Breakpoint " breakId " entered") tr loc)))))
 
 
     (jbug-breakpointList-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (jbug-display-breakpoints
          (mapcar
           (lambda (x)
             (list
              (car x)
              (-slice x 1)))
-          (-partition-in-steps 4 4 (-slice response  1))))))
+          (-partition-in-steps 4 4 (-slice response  1)))))))
 
 
     (jbug-catchEnabled-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (writeStringToBuffer
          proc
-         (format "Exceptions %s\n" (if (string= (nth 1 response) "true") "enabled" "disabled")))))
+         (format "Exceptions %s\n" (if (string= (nth 1 response) "true") "enabled" "disabled"))))))
 
 
     (jbug-classPrepared-response
-     `(lambda (env response)
-        (writeStringToBuffer proc (concat  (s-join " " response) ".\n"))))
+     (function (lambda (_env response)
+        (writeStringToBuffer proc (concat  (s-join " " response) ".\n")))))
 
 
     (jbug-classUnloaded-response
-     `(lambda (env response)
-        `t))
+     (function (lambda (_env _response) ())))
 
 
     (jbug-classes-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let
             ((classes (-slice response 1)))
           (writeStringToBuffer
@@ -980,16 +977,16 @@ LINE  - current line in source file"
           (dolist (r classes)
             (writeStringToBuffer
              proc
-             (format "%s\n" r))))))
+             (format "%s\n" r)))))))
 
 
     (jbug-error-response
-     `(lambda (env response)
-        (writeStringToBuffer proc (concat "Error: "  (nth 1 response) "\n"))))
+     (function (lambda (_env response)
+        (writeStringToBuffer proc (concat "Error: "  (nth 1 response) "\n")))))
 
 
     (jbug-exception-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let
             ((name (nth 1 response))
              (loc (-slice response 2 5))
@@ -1006,11 +1003,11 @@ LINE  - current line in source file"
                              (mapcar (lambda (x) (nth 1 (assoc "fileName" x))) c)
                              (mapcar (lambda (x) (nth 1 (assoc "lineNumber" x))) c)
                              (mapcar (lambda (x) (nth 1 (assoc "methodName" x))) c)))
-              (lambda (x) (writeStringToBuffer proc (format " %s\n" (jbug-LocationString x)))))))))
+              (lambda (x) (writeStringToBuffer proc (format " %s\n" (jbug-LocationString x))))))))))
 
 
     (jbug-fields-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let
             ((className  (nth 1 response))
              (fields (-partition-in-steps 8 8 (-slice response 2))))
@@ -1019,19 +1016,19 @@ LINE  - current line in source file"
            jbug-proxyProcess
            "|Field |Type|Declaring Type|Enum|Transient|Volatile|Final|Static|\n"
            jbug-orgTableSeperator
-           fields))))
+           fields)))))
 
 
     (jbug-internalException-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let
             ((msg (nth  1 response))
              (stack (nth 2 response)))
-          (writeStringToBuffer proc (concat "Internal exception in proxy: " msg "\n" stack "\n")))))
+          (writeStringToBuffer proc (concat "Internal exception in proxy: " msg "\n" stack "\n"))))))
 
 
     (jbug-locals-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let
             ((thread   (nth 1 response))
              (frame    (nth 2 response))
@@ -1043,16 +1040,16 @@ LINE  - current line in source file"
            jbug-proxyProcess
            "| Name | Value |\n"
            jbug-orgTableSeperator
-           th))))
+           th)))))
 
 
     (jbug-log-response
-     `(lambda (env response)
-        (writeStringToBuffer proc (concat (nth 1 response) ".\n"))))
+     (function (lambda (_env response)
+        (writeStringToBuffer proc (concat (nth 1 response) ".\n")))))
 
 
     (jbug-modificationWatchpoint-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let ((tr                 (-slice response 1 7))
               (loc                 (-slice response 7))
               (className (nth 10 response))
@@ -1064,11 +1061,11 @@ LINE  - current line in source file"
            jbug-proxyProcess
            "|Class:Field|Value|\n"
            jbug-orgTableSeperator
-           (list (concat className ":" fieldName) (list "current" old) (list "new" new))))))
+           (list (concat className ":" fieldName) (list "current" old) (list "new" new)))))))
 
 
     (jbug-modificationWatchpointSet-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let ((class  (nth 1 response))
               (field (nth 2 response)))
         (writeStringToBuffer
@@ -1076,27 +1073,27 @@ LINE  - current line in source file"
          (concat
           "Modification watchpoint set for field "
           field
-          " in class " class ".\n")))))
+          " in class " class ".\n"))))))
 
 
     (jbug-preparingClass-response
-     `(lambda (env response)
-        (writeStringToBuffer proc (concat "Preparing class " (nth 1 response) ".\n"))))
+     (function (lambda (_env response)
+        (writeStringToBuffer proc (concat "Preparing class " (nth 1 response) ".\n")))))
 
 
     (jbug-proxyExited-response
-     `(lambda (env response)
+     (function (lambda (_env _response)
         (writeStringToBuffer jbug-proxyProcess "Debugger proxy exited\n")
-        (delete-process jbug-proxyProcess)))
+        (delete-process jbug-proxyProcess))))
 
 
     (jbug-proxyStarted-response
-     `(lambda (env response)
-        (writeStringToBuffer jbug-proxyProcess "Debugger proxy started\n")))
+     (function (lambda (_env _response)
+        (writeStringToBuffer jbug-proxyProcess "Debugger proxy started\n"))))
 
 
     (jbug-stack-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let
             ((id (nth 1 response))
              (locations  (-partition-in-steps 3 3 (-slice response 2))))
@@ -1124,19 +1121,19 @@ LINE  - current line in source file"
               (setSourceFileWindow
                jbug-proxyProcess
                (locationFile loc)
-               (locationLineNumber loc)))))))
+               (locationLineNumber loc))))))))
 
 
     (jbug-step-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let
             ((tr   (-slice response 1 7))
              (loc (-slice response 7)))
-          (reportBreak "step" tr loc))))
+          (reportBreak "step" tr loc)))))
 
 
     (jbug-this-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let
             (( thread (nth 1 response))
              (frame (nth 2 response))
@@ -1148,53 +1145,52 @@ LINE  - current line in source file"
            jbug-proxyProcess
            "|This|\n"
            jbug-orgTableSeperator
-           th))))
+           th)))))
 
 
     (jbug-threadDied-response
-     `(lambda (env response)
-        `t))
+     (function (lambda (_env _response) ())))
 
     (jbug-threadList-response
-     `(lambda (env response)
+     (function (lambda (_env response)
         (let
             ((threads (-partition-in-steps 6 6 (-slice response 1))))
           (writeOrgTableToBuffer
            jbug-proxyProcess
            "|ID|Name|State|Frames|Breakpoint|Suspended|\n"
            jbug-orgTableSeperator
-           threads))))
+           threads)))))
 
 
     (jbug-threadStarted-response
-     `(lambda (env response)
-        `t))
+     (function (lambda (_env _response) ())))
+
 
     (jbug-vmCreated-response
-     `(lambda (env response)
-        (writeStringToBuffer jbug-proxyProcess "virtual machine created\n")))
+     (function (lambda (_env _response)
+        (writeStringToBuffer jbug-proxyProcess "virtual machine created\n"))))
 
 
     (jbug-vmDied-response
-     `(lambda (env response)
+     (function (lambda (_env _response)
         (writeStringToBuffer jbug-proxyProcess "virtual machine terminated\n")
-        (jbug-addResponseCommand "quit")))
+        (jbug-addResponseCommand "quit"))))
 
 
     (jbug-vmDisconnected-response
-     `(lambda (env response)
+     (function (lambda (_env _response)
         (writeStringToBuffer jbug-proxyProcess "virtual machine disconnected\n")
-        (jbug-addResponseCommand "quit")))
+        (jbug-addResponseCommand "quit"))))
 
 
     (jbug-vmResumed-response
-     `(lambda (env response)
-        (writeStringToBuffer jbug-proxyProcess "virtual machine resuming operation.\n")))
+     (function (lambda (_env _response)
+        (writeStringToBuffer jbug-proxyProcess "virtual machine resuming operation.\n"))))
 
 
     (jbug-vmStarted-response
-     `(lambda (env response)
-        (writeStringToBuffer jbug-proxyProcess "virtual machine started\n")))
+     (function (lambda (_env _response)
+        (writeStringToBuffer jbug-proxyProcess "virtual machine started\n"))))
     )))
 
 
@@ -1234,7 +1230,7 @@ programming language code or by a Java Native Interface (JNI) get function.
   (lambda (c) (/= (length c) 3))
   "access class-name field-name"
   (lambda (proxy c)
-    (process-send-string
+    (jbug-sendStringToProxy
      proxy
      (format
       "access,%s,%s\n"
@@ -1260,7 +1256,7 @@ with a variable descriptor string.
   (lambda (c) (or (< (length c) 1) (> (length c) 4)))
   "arguments  [variable names] [thread] [frame]"
   (lambda (proxy c)
-    (process-send-string
+    (jbug-sendStringToProxy
      proxy
      (jbug-dots c)))))
 
@@ -1280,7 +1276,7 @@ Attach the debugger to the target VM.
     (lambda (c) (or (/= (length c) 3)  (not (string-match "[0-9]+" (nth 2 c)))))
     "attach host  [port number ]"
     (lambda (proxy c)
-      (process-send-string
+      (jbug-sendStringToProxy
        proxy
        (format "attach,%s,%s\n" (nth 1 c) (nth 2 c))))))
 #+END_SRC
@@ -1299,7 +1295,7 @@ Set a breakpoint in the target VM.
   (lambda (c) (/= (length c) 3))
   "break class-name <line-number|method name>"
   (lambda (proxy c)
-    (process-send-string
+    (jbug-sendStringToProxy
      proxy
      (format "break,%s,%s\n" (nth 1 c) (nth 2 c))))))
 
@@ -1318,7 +1314,7 @@ List breakpoints enabled in the target VM.
                                    (lambda (c) (/= (length c) 1))
                                    "breaks"
                                    (lambda (proxy _c)
-                                     (process-send-string
+                                     (jbug-sendStringToProxy
                                       proxy
                                       "breaks\n"))))
 
@@ -1337,7 +1333,7 @@ Request notification when an exception occurs in the target VM.
     (lambda (c) (or (/= (length c) 2)  (and (not (string-match "on" (nth 1 c))) (not (string-match "off" (nth 1 c))))))
     "catch on|off"
     (lambda (proxy c)
-      (process-send-string
+      (jbug-sendStringToProxy
        proxy
        (format
         "catch,%s\n"
@@ -1359,7 +1355,7 @@ Print all classes loaded in the target VM.
     (lambda (c) (/= (length c) 1))
     "classes"
     (lambda (proxy _c)
-      (process-send-string
+      (jbug-sendStringToProxy
        proxy
        "classes\n"))))
 
@@ -1382,7 +1378,7 @@ Clear all breakpoints or the specified breakpoint.
            (not (string= "all" (nth 1 c))))))
     "clear [breakpoint-id/all]"
     (lambda (proxy c)
-      (process-send-string
+      (jbug-sendStringToProxy
        proxy
        (format
         "clear,%s\n"
@@ -1403,7 +1399,7 @@ Set the default frame to the frame directly below the current default frame.
                                "down"
                                (lambda (proxy c)
                                  (setq jbug-defaultFrame (1+ jbug-defaultFrame))
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   (format
                                    "stack,%s\n"
@@ -1423,7 +1419,7 @@ Prints all the fields of a given class.
                                (lambda (c) (/= (length c) 2))
                                "fields"
                                (lambda (proxy c)
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   (format "fields,%s\n" (nth 1 c))))))
 
@@ -1467,7 +1463,7 @@ with a variable descriptor string.
   (lambda (c) (or (< (length c) 1) (> (length c) 4)))
   "locals  [variable names] [thread] [frame]"
   (lambda (proxy c)
-    (process-send-string
+    (jbug-sendStringToProxy
      proxy
      (jbug-dots c)))))
 
@@ -1490,7 +1486,7 @@ next - step to the next location on a different line and over a new frame.
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
                                "back [thread-id]"
                                (lambda (proxy c)
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   (format
                                    "back,%s\n"
@@ -1503,7 +1499,7 @@ next - step to the next location on a different line and over a new frame.
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
                                "into [thread-id]"
                                (lambda (proxy c)
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   (format
                                    "into,%s\n"
@@ -1516,7 +1512,7 @@ next - step to the next location on a different line and over a new frame.
                                (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
                                "next [thread-id]"
                                (lambda (proxy c)
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   (format
                                    "next,%s\n"
@@ -1542,7 +1538,7 @@ to a value which is the same as the previous value still triggers this event.
                                (lambda (c) (/= (length c) 3))
                                "modify class-name field-name"
                                 (lambda (proxy c)
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   (format
                                   "modify,%s,%s\n"
@@ -1564,7 +1560,7 @@ Request notification when a class is prepared in the target VM.
                                (lambda (c) (/= (length c) 2))
                                "prepare [class name]"
                                (lambda (proxy c)
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   (format "prepare,%s\n" (nth 1 c))))))
 
@@ -1583,7 +1579,7 @@ End the debugging session.
                                (lambda (c) (/= (length c) 1))
                                "quit"
                                (lambda (proxy _c)
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   "quit\n"))))
 
@@ -1602,7 +1598,7 @@ Start or resume program execution.
                                (lambda (c) (/= (length c) 1))
                                "run"
                                (lambda (proxy _c)
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   "run\n"))))
 
@@ -1613,7 +1609,7 @@ Start or resume program execution.
                                (lambda (c) (/= (length c) 1))
                                "continue"
                                (lambda (proxy _c)
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   "run\n"))))
 
@@ -1634,7 +1630,7 @@ command to get a list of threads and their ids.
                                "set [thread-id]"
                                (lambda (proxy c)
                                  (setq jbug-defaultThread (nth 1 c))
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   "threads\n"))))
 
@@ -1653,7 +1649,7 @@ Print the stack of method calls which have brought us to this point.
                                (lambda (c) (and (/= (length c) 1) (/= (length c) 2)))
                                "stack [thread]"
                                (lambda (proxy c)
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   (format
                                    "stack,%s\n"
@@ -1676,7 +1672,7 @@ and default frame.
   (lambda (c) (or (< (length c) 1) (> (length c) 4)))
   "this  [variable names]  [thread]  [frame]"
   (lambda (proxy c)
-    (process-send-string
+    (jbug-sendStringToProxy
      proxy
      (jbug-dots c)))))
 
@@ -1695,7 +1691,7 @@ Prints the running threads and their status.
                                    (lambda (c) (/= (length c) 1))
                                    "threads"
                                    (lambda (proxy _c)
-                                     (process-send-string
+                                     (jbug-sendStringToProxy
                                       proxy
                                       "threads\n"))))
 
@@ -1716,7 +1712,7 @@ jbug-commandHashMap
                                (lambda (proxy _c)
                                  (if (> jbug-defaultFrame 0)
                                    (setq jbug-defaultFrame (1- jbug-defaultFrame)))
-                                 (process-send-string
+                                 (jbug-sendStringToProxy
                                   proxy
                                   (format
                                    "stack,%s\n"
@@ -1781,27 +1777,31 @@ PORT - port to which attach debugger"
     (delete-other-windows)
     (jbug-mode)
 
-    ;; set up the response tables
+    ;; Set up the response tables.
 
     (jbug-initializeResponseTables)
+
+    ;; This is a special response table for initialisation. It waits until the
+    ;; main class is loaded and then sets a breakpoint at the start of the
+    ;; program.  Here we have an example of controlling the debugger with an
+    ;; elisp script.
 
     (jbug-addResponseTable
      "initialization environment"
       (ht
        (jbug-vmStarted-response
-        `(lambda (env response)
-           (jbug-addResponseCommand (format "catch on;prepare %s" (ht-get env "EXPECTED")))))
+        (function (lambda (env _response)
+           (jbug-addResponseCommand (format "catch on;prepare %s" (ht-get env "EXPECTED"))))))
        (jbug-vmDied-response
-        `(lambda (env response)
-          (writeStringToBuffer jbug-proxyProcess "If the virtual machine terminates immediately perhaps the process to be debugged is not running.\n")))
-        (jbug-classPrepared-response
-        `(lambda (env response)
+        (function (lambda (_env _response)
+                    (writeStringToBuffer jbug-proxyProcess "If the virtual machine terminates immediately perhaps the process to be debugged is not running.\n"))))
+       (jbug-classPrepared-response
+        (function (lambda (env response)
            (let ((expected (ht-get env "EXPECTED")))
              (when (string= expected (nth 1 response))
-
-(jbug-addResponseCommand (format "break %s main;continue" expected))
-               (jbug-removeResponseTable env)))))
-     ("EXPECTED" mn)))
+               (jbug-addResponseCommand (format "break %s main;continue" expected))
+               (jbug-removeResponseTable env))))))
+       ("EXPECTED" mn)))
 
     (run-hooks `jbug-mode-hook)
 
