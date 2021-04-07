@@ -182,7 +182,7 @@ setting it as the value of the jbug-proxy-command variable.
 (defvar
   jbug-receivedFromProxy
   ""
-  "Concat return values from process filter in this variable")
+  "Concat return values from process filter in this variable.")
 
 (defun jbug-get-proxy-command()
   "Return the shell command to start the proxy program."
@@ -196,7 +196,9 @@ setting it as the value of the jbug-proxy-command variable.
        (expand-file-name jbug-toolsJar base)
        " com.github.jruby21.javadebugger.JavaDebuggerProxy"))))
 
-(defun jbug-sendStringToProxy (s) (process-send-string jbug-proxyProcess s))
+(defun jbug-sendStringToProxy (s)
+  "Write the string S to standard output and so to the proxy."
+   (process-send-string jbug-proxyProcess s))
 
 #+END_SRC
 
@@ -472,10 +474,10 @@ ENTRY   - the command's entry in the hash table jbug-commandHashMap."
 
   (list key entered split entry))
 
-(defun getKeyFromCommandDescription      (cp) "Get the command name from the running command descriptor CP."  (nth 0 cp))
-(defun getEnteredFromCommandDescription  (cp) "Get the entered command from the running command descriptor CP." (nth 1 cp))
-(defun getSplitFromCommandDescription    (cp) "Get the entered command as a list from the running command descriptor CP." (nth 2 cp))
-(defun getCommandHashEntry               (cp) "Get the command hash entry from the running command descriptor CP." (nth 3 cp))
+(defun jbug-getKeyFromCommandDescription          (cp) "Get the command name from the running command descriptor CP."  (nth 0 cp))
+(defun jbug-getEnteredFromCommandDescription  (cp) "Get the entered command from the running command descriptor CP." (nth 1 cp))
+(defun jbug-getSplitFromCommandDescription        (cp) "Get the entered command as a list from the running command descriptor CP." (nth 2 cp))
+(defun jbug-getCommandHashEntry                             (cp) "Get the command hash entry from the running command descriptor CP." (nth 3 cp))
 
 #+END_SRC
 
@@ -530,16 +532,15 @@ All sorts of things are involved in executing a command:
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 (defun jbug-execute-command ()
-  "If no command is presently running and there are commands
-waiting to execute, run the first command on the jbug-commandsToRun
-list."
+  "Run the first command on the jbug-commandsToRun if  two conditions are met.
+They are, no comand is presently running and the waiting to execute list is not empty."
   (when (and jbug-commandsToRun (not jbug-runningCommand))
     (setq jbug-runningCommand (car jbug-commandsToRun))
     (setq jbug-commandsToRun (cdr jbug-commandsToRun))
-    (jbug-writeToOutputBuffer (concat "\n*** " (getEnteredFromCommandDescription jbug-runningCommand) "\n"))
+    (jbug-writeToOutputBuffer (concat "\n*** " (jbug-getEnteredFromCommandDescription jbug-runningCommand) "\n"))
     (jbug-doCommand
-     (getCommandHashEntry jbug-runningCommand)
-     (getSplitFromCommandDescription jbug-runningCommand))))
+     (jbug-getCommandHashEntry jbug-runningCommand)
+     (jbug-getSplitFromCommandDescription jbug-runningCommand))))
 #+END_SRC
 
 ** Responses from the proxy
@@ -569,12 +570,14 @@ list can change during execution; that is how we program the debugger.
 (defvar
   jbug-responseTables
   ()
-  "list of hash tables each of which contains response functions")
+  "A list of hash tables each of which contains response functions.")
 
 (defun jbug-getResponseTableName (env)
+  "Return the name of response table ENV."
   (or (ht-get env "jbug-name") "unnamed environment"))
 
 (defun jbug-addResponseTable  (name env)
+  "Add response table ENV  with name NAME  to the list of active response tables."
   (cond ((s-blank? name)    (message "Tried to add response table with blank name"))
         ((null env)     (message "Tried to add a null response"))
         ((member env jbug-responseTables)
@@ -584,6 +587,7 @@ list can change during execution; that is how we program the debugger.
                           (push env jbug-responseTables)))))
 
 (defun jbug-removeResponseTable (env)
+  "Remove response table ENV from the list of active response tables."
   (if (not (member env jbug-responseTables))
       (message
        "Tried to remove a response table (%s) not contained in jbug-responseTables"
@@ -608,10 +612,11 @@ the output buffer.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 
-(defvar jbug-responseCommands ())
+(defvar jbug-responseCommands () "The list of commands to the debugger added by response functions.")
 
 (defun jbug-addResponseCommand (s)
-       (setq jbug-responseCommands (cons s jbug-responseCommands)))
+  "Add the command S to the list of commands to be executed after all response functions finish."
+  (setq jbug-responseCommands (cons s jbug-responseCommands)))
 
 (defun jbug-insertion-filter (proc string)
   "Receive input from the proxy process.
@@ -706,11 +711,11 @@ STRING - the string to write in the buffer"
           (insert (concat "\n\n" title))
           (let ((tableStart (point)))
             (insert sep)
-            (insert (dataLayout rows))
+            (insert (jbug-dataLayout rows))
             (goto-char tableStart)
             (ignore-errors (org-ctrl-c-ctrl-c)))))))
 
-  (defun dataLayout (args)
+  (defun jbug-dataLayout (args)
     (if args
         (let ((s "| ")
               (stack ())
@@ -742,43 +747,43 @@ STRING - the string to write in the buffer"
           s)
       ""))
 
-(defun reportBreak (preface thread location)
+(defun jbug-reportBreak (preface thread location)
   "Insert the desciption of a breakpoint into the jbug buffer.
 PREFACE - a breakpoint or a step
 THREAD - the thread in which the breakpoint occured
 LOCATION - the location of the breakpoint"
-  (setq jbug-defaultThread (threadID thread))
+  (setq jbug-defaultThread (jbug-threadID thread))
   (setq jbug-defaultFrame 0)
   (jbug-writeToOutputBuffer
    (concat
     "** "
     preface
     " in thread "
-    (threadID thread)
+    (jbug-threadID thread)
     " frame "
     (number-to-string jbug-defaultFrame)
     " at "
-    (locationFile location)
+    (jbug-locationFile location)
     ":"
-    (locationLineNumber location)
+    (jbug-locationLineNumber location)
     " ("
-    (if (locationMethod location) (locationMethod location) "")
+    (if (jbug-locationMethod location) (jbug-locationMethod location) "")
     ")\n"))
-  (setSourceFileWindow
+  (jbug-setSourceFileWindow
    jbug-proxyProcess
-   (locationFile location)
-   (locationLineNumber location)))
+   (jbug-locationFile location)
+   (jbug-locationLineNumber location)))
 
-(defun threadID               (args) "Get id from thread descriptor list ARGS."                       (nth 0 args))
-(defun threadName          (args) "Get name from thread descriptor list ARGS."                   (nth 1 args))
-(defun threadState           (args) "Get state from thread descriptor list ARGS."                   (nth 2 args))
-(defun threadFrames        (args) "Get frame count  from thread descriptor list ARGS."          (nth 3 args))
-(defun threadBreakpoint   (args) "Is thread at breakpoint from thread descriptor list ARGS."  (nth 4 args))
-(defun threadSuspended   (args) "Is thread suspended  from thread descriptor list ARGS."    (nth 5 args))
+(defun jbug-threadID                    (args) "Get id from thread descriptor list ARGS."                                   (nth 0 args))
+(defun jbug-threadName             (args) "Get name from thread descriptor list ARGS."                           (nth 1 args))
+(defun jbug-threadState               (args) "Get state from thread descriptor list ARGS."                              (nth 2 args))
+(defun jbug-threadFrames          (args) "Get frame count  from thread descriptor list ARGS."              (nth 3 args))
+(defun jbug-threadBreakpoint   (args) "Is thread at breakpoint from thread descriptor list ARGS."  (nth 4 args))
+(defun jbug-threadSuspended   (args) "Is thread suspended  from thread descriptor list ARGS."      (nth 5 args))
 
-(defun locationFile             (args) "Get file name from location descriptor list ARGS."        (nth 0 args))
-(defun locationLineNumber (args) "Get line number from location descriptor list ARGS."     (nth 1 args))
-(defun locationMethod       (args) "Get method name from location descriptor list ARGS."  (nth 2 args))
+(defun jbug-locationFile                   (args) "Get file name from location descriptor list ARGS."          (nth 0 args))
+(defun jbug-locationLineNumber (args) "Get line number from location descriptor list ARGS."     (nth 1 args))
+(defun jbug-locationMethod            (args) "Get method name from location descriptor list ARGS."  (nth 2 args))
 
 #+END_SRC
 
@@ -790,7 +795,7 @@ window. The other showing the org file with the cursor on the last line. Maybe
 we can get this, maybe not.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
-(defun setSourceFileWindow (proc file line)
+(defun jbug-setSourceFileWindow (proc file line)
 "Display the source file in the source file window.
 PROC - proxy process
 FILE   - source file
@@ -800,7 +805,7 @@ LINE  - current line in source file"
     (when (and bug (buffer-live-p (process-buffer proc)))
       (if (= (length (window-list)) 1)
           (split-window))
-      (let ((source (winForOtherBuffer bug (process-buffer proc))))
+      (let ((source (jbug-winForOtherBuffer bug (process-buffer proc))))
         (if source
             (select-window source)
           (set-buffer bug))
@@ -809,13 +814,14 @@ LINE  - current line in source file"
         (bm-remove-all-all-buffers)
         (bm-toggle)
         (if (eq (window-buffer) bug) (recenter-top-bottom)))
-      (let ((procWin (winForOtherBuffer (process-buffer proc) bug)))
+      (let ((procWin (jbug-winForOtherBuffer (process-buffer proc) bug)))
         (if procWin
             (select-window procWin)
           (set-buffer (process-buffer proc)))
         (goto-char (point-max))))))
 
-(defun winForOtherBuffer (buffer notbuffer)
+(defun jbug-winForOtherBuffer (buffer notbuffer)
+  "Given the the two dugger buffers (BUFFER and NOTBUFFER) set the windows properly."
   (let ((win (get-buffer-window buffer)))
     (when (not win)
       (let  ((wl (window-list)))
@@ -867,7 +873,7 @@ LINE  - current line in source file"
 (defconst jbug-vmStarted-response "vmstarted" "Keyword identifying response string from buffer.")
 
 (defun jbug-initializeResponseTables ()
-
+"Set the basic response table."
   (setq jbug-responseTables ())
 
   (jbug-addResponseTable
@@ -891,7 +897,7 @@ LINE  - current line in source file"
               (className (nth 10 response))
               (fieldName  (nth 11 response))
               (value          (nth 0 (read-from-string (nth 12 response)))))
-          (reportBreak (concat "Access watchpoint  entered") tr loc)
+          (jbug-reportBreak (concat "Access watchpoint  entered") tr loc)
           (jbug-writeTableToOutputBuffer
            "|Class:Field|Value|\n"
            jbug-orgTableSeperator
@@ -934,7 +940,7 @@ LINE  - current line in source file"
             ((breakId  (nth 1 response))
              (tr             (-slice response 2 8))
              (loc          (-slice response 8)))
-          (reportBreak (concat "Breakpoint " breakId " entered") tr loc)))))
+          (jbug-reportBreak (concat "Breakpoint " breakId " entered") tr loc)))))
 
 
     (jbug-breakpointList-response
@@ -1046,7 +1052,7 @@ LINE  - current line in source file"
               (fieldName  (nth 11 response))
               (old                (nth 0 (read-from-string (nth 12 response))))
              (new              (nth 0 (read-from-string (nth 13 response)))))
-          (reportBreak (concat "Modification watchpoint  entered") tr loc)
+          (jbug-reportBreak (concat "Modification watchpoint  entered") tr loc)
           (jbug-writeTableToOutputBuffer
            "|Class:Field|Value|\n"
            jbug-orgTableSeperator
@@ -1105,10 +1111,10 @@ LINE  - current line in source file"
              (reverse ff)))
           (when (< jbug-defaultFrame (length locations))
             (let ((loc (nth jbug-defaultFrame locations)))
-              (setSourceFileWindow
+              (jbug-setSourceFileWindow
                jbug-proxyProcess
-               (locationFile loc)
-               (locationLineNumber loc))))))))
+               (jbug-locationFile loc)
+               (jbug-locationLineNumber loc))))))))
 
 
     (jbug-step-response
@@ -1116,7 +1122,7 @@ LINE  - current line in source file"
         (let
             ((tr   (-slice response 1 7))
              (loc (-slice response 7)))
-          (reportBreak "step" tr loc)))))
+          (jbug-reportBreak "step" tr loc)))))
 
 
     (jbug-this-response
@@ -1179,6 +1185,7 @@ LINE  - current line in source file"
 
 
 (defun jbug-display-breakpoints (breakpoints)
+  "Display list of breakpoints (BREAKPOINTS)."
   (jbug-writeToOutputBuffer
    "Breakpoints")
   (jbug-writeTableToOutputBuffer
@@ -1668,23 +1675,24 @@ jbug-commandHashMap
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 
 (defun jbug-LocationString (l)
-  "Return a string describing the location descriptor list L"
-  (format "%s:%s %s" (locationFile l) (locationLineNumber l) (locationMethod l)))
+  "Return a string describing the location descriptor list L."
+  (format "%s:%s %s" (jbug-locationFile l) (jbug-locationLineNumber l) (jbug-locationMethod l)))
 
 (defun jbug-dots (c)
+  "Fill out a dot descriptor C with default values if necessary."
   (let ((a (concat (nth 0 c)  ",%s,%s,%s\n")))
     (cond
       ((= (length c) 1)
-       (format a  jbug-defaultThread jbug-defaultFrame (setDotNotation "")))
+       (format a  jbug-defaultThread jbug-defaultFrame (jbug-setDotNotation "")))
       ((= (length c) 2)
-       (format a jbug-defaultThread jbug-defaultFrame (setDotNotation (nth 1 c))))
+       (format a jbug-defaultThread jbug-defaultFrame (jbug-setDotNotation (nth 1 c))))
       ((= (length c) 3)
-       (format a (nth 2 c) jbug-defaultFrame (setDotNotation (nth 1 c))))
+       (format a (nth 2 c) jbug-defaultFrame (jbug-setDotNotation (nth 1 c))))
       ((= (length c) 4)
-       (format a (nth 2 c) (nth 3 c)  (setDotNotation (nth 1 c)))))))
+       (format a (nth 2 c) (nth 3 c)  (jbug-setDotNotation (nth 1 c)))))))
 
-(defun setDotNotation(a)
-"Put array string into dot notation for proxy."
+(defun jbug-setDotNotation(a)
+"Put array string A into dot notation for proxy."
   (setq a (s-trim a))
   (let ((b (if (string= a "") () (-take 6 (s-split "[.]" a)))))
     (while (< (length b) 6) (setq b (-snoc b "*")))
