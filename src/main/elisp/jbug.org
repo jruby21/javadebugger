@@ -57,16 +57,14 @@ variables (DebuggerOutput.java).  That's about it.
 ** Boilerplate
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
-;;; -*- lexical-binding: t; -*-
-
-;;; jbug.el --- An Emacs based JAVA debugger
+;;; jbug.el --- An Emacs based JAVA debugger  -*- lexical-binding: t; -*-
 
 ;;; Copyright (C) 2010-2018 Jonathan Ruby
 
 ;; Author: Jonathan Ruby <jruby21@protonmail.com>
 ;; Maintainer: Jonathan Ruby <jruby21@protonmail.com>
 ;; Created: 18 August 2018
-;; Keywords: tools
+;; Keywords: languages,tools
 ;; Homepage: https://github.com/jruby21/javadebugger
 
 ;; This file is not part of GNU Emacs.
@@ -101,13 +99,15 @@ variables (DebuggerOutput.java).  That's about it.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 
-; jbugMode requires loading these four emacs packages:
+; jbugMode requires loading these five emacs packages:
 
+;   org
 ;   bm
 ;   dash
 ;   ht
 ;   s
 
+(require 'org)
 (require 'bm)
 (require 'dash)
 (require 'ht)
@@ -148,9 +148,8 @@ mode.
 ** The Proxy
 
 There is a JAVA prgram called the 'proxy' which connects to the target process
-and handles the JDI interface.  The proxy runs as a sub process to emacs. This
-elisp program sends commands to the proxy on stdin and receives replies on
-stdout.
+and handles the JDI interface.  The proxy is a sub process to emacs. This elisp
+program sends commands to the proxy on stdin and receives replies on stdout.
 
 Normally, we assume that the jar files containing the proxy classes and the JDI
 classes are in the same directory as this script. We find the directory name of
@@ -549,8 +548,6 @@ The proxy sends message to this elisp program by writing them to its
 stdout. EMACS receives the messages on stdin and passes them to this elisp
 program by calling the insertion filter jbug-insertion-filter.
 
-*** Responses
-
 A response is an ascii string  terminated by a new line.
 
 The tokens in a response are seperated by commas.
@@ -558,13 +555,66 @@ The tokens in a response are seperated by commas.
 A response function is an elisp function that runs when this program receives
 a response.
 
-The first token in a response identifies the response type. The first token is
-used as the key in a hash table lookup. The lookup returns an appropriate
-response function.
+The first token in a response identifies the response function which runs on
+response reception. The first token is used as the key in a hash table
+lookup. The lookup returns a function which this lisp program  then  executes.
+
+*** Response Identifiers
+
+These are the tokens which identify the responses a proxy can send to this lisp
+program.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el#+BEGIN_SRC emacs-lisp :tangle jbug.el
+(defconst jbug-accessWatchpoint-response "accesswatchpoint" "Keyword identifying response string from buffer.")
+(defconst jbug-accessWatchpointSet-response "accesswatchpointset" "Keyword identifying response string from buffer.")
+(defconst jbug-arguments-response "arguments" "Keyword identifying response string from buffer.")
+(defconst jbug-breakpointCleared-response "breakpointcleared" "Keyword identifying response string from buffer.")
+(defconst jbug-breakpointCreated-response "breakpointcreated" "Keyword identifying response string from buffer.")
+(defconst jbug-breakpointEntered-response "breakpointentered" "Keyword identifying response string from buffer.")
+(defconst jbug-breakpointList-response "breakpointlist" "Keyword identifying response string from buffer.")
+(defconst jbug-catchEnabled-response "catchenabled" "Keyword identifying response string from buffer.")
+(defconst jbug-classPrepared-response "classprepared" "Keyword identifying response string from buffer.")
+(defconst jbug-classUnloaded-response "classunloaded" "Keyword identifying response string from buffer.")
+(defconst jbug-classes-response "classes" "Keyword identifying response string from buffer.")
+(defconst jbug-command-ready-response "commandready" "JAVA proxy is ready to receive a command.")
+(defconst jbug-error-response "error" "Keyword identifying response string from buffer.")
+(defconst jbug-exception-response "exception" "Keyword identifying response string from buffer.")
+(defconst jbug-fields-response "fields" "Keyword identifying response string from buffer.")
+(defconst jbug-internalException-response "internalexception" "Keyword identifying response string from buffer.")
+(defconst jbug-locals-response "locals" "Keyword identifying response string from buffer.")
+(defconst jbug-log-response "log" "Keyword identifying response string from buffer.")
+(defconst jbug-modificationWatchpoint-response "modificationwatchpoint" "Keyword identifying response string from buffer.")
+(defconst jbug-modificationWatchpointSet-response "modificationwatchpointset" "Keyword identifying response string from buffer.")
+(defconst jbug-preparingClass-response "preparingclass" "Keyword identifying response string from buffer.")
+(defconst jbug-proxyExited-response "proxyexited" "Keyword identifying response string from buffer.")
+(defconst jbug-proxyStarted-response "proxystarted" "Keyword identifying response string from buffer.")
+(defconst jbug-stack-response "stack" "Keyword identifying response string from buffer.")
+(defconst jbug-step-response "step" "Keyword identifying response string from buffer.")
+(defconst jbug-stepCreated-response "stepcreated" "Keyword identifying response string from buffer.")
+(defconst jbug-this-response "this" "Keyword identifying response string from buffer.")
+(defconst jbug-threadDied-response "threaddied" "Keyword identifying response string from buffer.")
+(defconst jbug-threadList-response "threadlist" "Keyword identifying response string from buffer.")
+(defconst jbug-threadStarted-response "threadstarted" "Keyword identifying response string from buffer.")
+(defconst jbug-vmCreated-response "vmcreated" "Keyword identifying response string from buffer.")
+(defconst jbug-vmDied-response "vmdied" "Keyword identifying response string from buffer.")
+(defconst jbug-vmDisconnected-response "vmdisconnected" "Keyword identifying response string from buffer.")
+(defconst jbug-vmResumed-response "vmresumed" "Keyword identifying response string from buffer.")
+(defconst jbug-vmStarted-response "vmstarted" "Keyword identifying response string from buffer.")
+
+#+END_SRC
+
+*** Response Hash Tables
+
+A response hash table contains the functions which this lisp program will run on
+the reception of a response. The functions have the tokens defined above as
+their keys. On reception of a response, this lisp program picks out the first
+token, recovers the coressponding function from a response hash table, and then
+executes that function.
 
 There can be multiple hash tables containing response functions. We keep them in
 a list (jbug-responseTables) and execute the function contained in each. The
-list can change during execution; that is how we program the debugger.
+list of hash tables can change during execution; that is how we program the
+debugger. The functions listed below manage the list of response hash tables.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 (defvar
@@ -596,19 +646,14 @@ list can change during execution; that is how we program the debugger.
 
 #+END_SRC
 
-A set of response functions are defined below.
+*** Sending commands in a response function.
 
-*** Receive a Response
-
-The proxy sends data to this elisp program through stdout. That data is
-manifested to this program when EMACS calls the following routine without
-warning. The routine can return a response in pieces so we have to buffer
-the string returned. A response is ended by a new line.
-
-When we get a response, we split it on the commas and use the first field to
-look up the response's entry in the jbug-response-hash-table hash map. If the
-entry exists, it is a function which we execute with a funcall. Then we clean up
-the output buffer.
+A response function can send one or more new commands to the proxy. Sending
+commands immediately, after some of the response functions have executed but
+before others have completed, or while a list of commands is queued to be sent to
+the proxy, can result in the most remarkable mess. So, response functions add
+proxy commands to a special queue (jbug-responseCommands) and when all responses
+are done jbug-insertion-filter will queue these commands for execution.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 
@@ -618,6 +663,24 @@ the output buffer.
   "Add the command S to the list of commands to be executed after all response functions finish."
   (setq jbug-responseCommands (cons s jbug-responseCommands)))
 
+#+END_SRC
+
+*** Receive a Response
+
+The proxy sends strings to this elisp program through stdout. EMACS passes the
+string this program by calling the function jbug-insertion-filter.  That
+function can be called at any time. It may return a whole string transmitted by
+the proxy or only a fragment of the string so we have to buffer the string
+returned. A full response string is ended by a new line. We may receive multiple
+response strings in a single call to jbug-insertion-filter.
+
+When we get a response, we split it on the commas and use the first field to
+look up the response's entry in the jbug-response-hash-table hash map. If the
+entry exists, it is a function which we execute with a funcall. Then we clean up
+the output buffer.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
 (defun jbug-insertion-filter (proc string)
   "Receive input from the proxy process.
 PROC is the proxy process
@@ -625,7 +688,13 @@ STRING is the input from the proxy"
   (message "Received: %s :EndReceived" string)
   (if (not (eq jbug-proxyProcess proc))
       (message "Error: expected proxy %s got proxy %s" jbug-proxyProcess proc))
+
+  ; Buffer the input.
+
   (setq jbug-receivedFromProxy (concat jbug-receivedFromProxy string))
+
+  ; The presence of a newline indicates a full response string. Pull out the full
+  ;  response strings and buffer the fragment remaining.
 
   (let ((com (split-string jbug-receivedFromProxy "\n" 't)))
 
@@ -633,6 +702,9 @@ STRING is the input from the proxy"
         (setq jbug-receivedFromProxy ())
       (setq jbug-receivedFromProxy (-last-item com))
       (setq com                                    (-butlast com)))
+
+    ; Iterate through the full response strings. Split them  into tokens, then call
+    ; the right function in each active response hash table.
 
     (dolist (c com)
       (when (not (s-blank? c))
@@ -652,14 +724,17 @@ STRING is the input from the proxy"
                        (jbug-getResponseTableName env)))))))
              jbug-responseTables)
 
+            ; This is a special response the proxy sends to signal that it is ready for a
+            ;  new command.
+
             (when (string= (car response) jbug-command-ready-response)
               (setq jbug-runningCommand ())))
 
           (jbug-fix-output-buffer)))
 
-    ; Check if it's time to execute a waiting command. Sometimes responses will
-    ; queue commands to be executed. Add them to the waiting queue when
-    ; everything has calmed down.
+    ; Check if responses are done. If so,  it may be time to execute a queued command.
+    ; Sometimes responses will queue commands to be executed. Add them to queue
+    ; of commands waiting to execute when everything has calmed down.
 
     (when (not jbug-receivedFromProxy)
       (if (not jbug-responseCommands)
@@ -670,7 +745,8 @@ STRING is the input from the proxy"
           (insert (format "\n%s" coms))
           (jbug-newline))))))
 
-;; make the output buffer right
+;; Make the output buffer right,
+
 (defun jbug-fix-output-buffer ()
   "Put point at the end of the jbug buffer, if it exists."
   (let ((buf (process-buffer  jbug-proxyProcess)))
@@ -833,45 +909,8 @@ LINE  - current line in source file"
 #+END_SRC
 
 ** Commands and Responses
-*** Responses
 
-#+BEGIN_SRC emacs-lisp :tangle jbug.el#+BEGIN_SRC emacs-lisp :tangle jbug.el
-(defconst jbug-accessWatchpoint-response "accesswatchpoint" "Keyword identifying response string from buffer.")
-(defconst jbug-accessWatchpointSet-response "accesswatchpointset" "Keyword identifying response string from buffer.")
-(defconst jbug-arguments-response "arguments" "Keyword identifying response string from buffer.")
-(defconst jbug-breakpointCleared-response "breakpointcleared" "Keyword identifying response string from buffer.")
-(defconst jbug-breakpointCreated-response "breakpointcreated" "Keyword identifying response string from buffer.")
-(defconst jbug-breakpointEntered-response "breakpointentered" "Keyword identifying response string from buffer.")
-(defconst jbug-breakpointList-response "breakpointlist" "Keyword identifying response string from buffer.")
-(defconst jbug-catchEnabled-response "catchenabled" "Keyword identifying response string from buffer.")
-(defconst jbug-classPrepared-response "classprepared" "Keyword identifying response string from buffer.")
-(defconst jbug-classUnloaded-response "classunloaded" "Keyword identifying response string from buffer.")
-(defconst jbug-classes-response "classes" "Keyword identifying response string from buffer.")
-(defconst jbug-command-ready-response "commandready" "JAVA proxy is ready to receive a command.")
-(defconst jbug-error-response "error" "Keyword identifying response string from buffer.")
-(defconst jbug-exception-response "exception" "Keyword identifying response string from buffer.")
-(defconst jbug-fields-response "fields" "Keyword identifying response string from buffer.")
-(defconst jbug-internalException-response "internalexception" "Keyword identifying response string from buffer.")
-(defconst jbug-locals-response "locals" "Keyword identifying response string from buffer.")
-(defconst jbug-log-response "log" "Keyword identifying response string from buffer.")
-(defconst jbug-modificationWatchpoint-response "modificationwatchpoint" "Keyword identifying response string from buffer.")
-(defconst jbug-modificationWatchpointSet-response "modificationwatchpointset" "Keyword identifying response string from buffer.")
-(defconst jbug-preparingClass-response "preparingclass" "Keyword identifying response string from buffer.")
-(defconst jbug-proxyExited-response "proxyexited" "Keyword identifying response string from buffer.")
-(defconst jbug-proxyStarted-response "proxystarted" "Keyword identifying response string from buffer.")
-(defconst jbug-stack-response "stack" "Keyword identifying response string from buffer.")
-(defconst jbug-step-response "step" "Keyword identifying response string from buffer.")
-(defconst jbug-stepCreated-response "stepcreated" "Keyword identifying response string from buffer.")
-(defconst jbug-this-response "this" "Keyword identifying response string from buffer.")
-(defconst jbug-threadDied-response "threaddied" "Keyword identifying response string from buffer.")
-(defconst jbug-threadList-response "threadlist" "Keyword identifying response string from buffer.")
-(defconst jbug-threadStarted-response "threadstarted" "Keyword identifying response string from buffer.")
-(defconst jbug-vmCreated-response "vmcreated" "Keyword identifying response string from buffer.")
-(defconst jbug-vmDied-response "vmdied" "Keyword identifying response string from buffer.")
-(defconst jbug-vmDisconnected-response "vmdisconnected" "Keyword identifying response string from buffer.")
-(defconst jbug-vmResumed-response "vmresumed" "Keyword identifying response string from buffer.")
-(defconst jbug-vmStarted-response "vmstarted" "Keyword identifying response string from buffer.")
-
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
 (defun jbug-initializeResponseTables ()
 "Set the basic response table."
   (setq jbug-responseTables ())
@@ -1735,7 +1774,7 @@ PORT - port to which attach debugger"
     ;; This is a special response table for initialisation. It waits until the
     ;; main class is loaded and then sets a breakpoint at the start of the
     ;; program.  Here we have an example of controlling the debugger with an
-    ;; elisp script.
+    ;; elisp script embedded in a proxy response hash table.
 
     (jbug-addResponseTable
      "initialization environment"
@@ -1772,5 +1811,6 @@ PORT - port to which attach debugger"
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 
 (provide 'jbug)
+;;; jbug.el ends here
 ;;; jbug.el ends here
 #+END_SRC
