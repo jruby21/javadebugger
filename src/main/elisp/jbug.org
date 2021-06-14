@@ -117,8 +117,8 @@ variables (DebuggerOutput.java).  That's about it.
 
 ** jbug mode
 
-The elisp program as a mode name jbug-mode. The mode is derived from ORG
-mode.
+The elisp program implements a derived mode named jbug-mode. The mode is derived
+from ORG mode.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 
@@ -133,7 +133,7 @@ mode.
 ;;;###autoload
 (define-derived-mode jbug-mode
   org-mode "Jbug"
-  "Major mode java debugger.")
+  "JAVA debugger.")
 
 (defcustom jbug-mode-hook nil
   "Mode hook for Org mode, run after the mode was turned on."
@@ -147,9 +147,10 @@ mode.
 
 ** The Proxy
 
-There is a JAVA prgram called the 'proxy' which connects to the target process
-and handles the JDI interface.  The proxy is a sub process to emacs. This elisp
-program sends commands to the proxy on stdin and receives replies on stdout.
+Jbug mode uses a JAVA prgram called the 'proxy' which connects to the target
+process and handles the JDI interface.  The proxy is a sub process under
+emacs. This elisp program sends commands to the proxy on stdin and receives
+replies on stdout.
 
 Normally, we assume that the jar files containing the proxy classes and the JDI
 classes are in the same directory as this script. We find the directory name of
@@ -183,6 +184,11 @@ setting it as the value of the jbug-proxy-command variable.
   ""
   "Concat return values from process filter in this variable.")
 
+(defvar
+  jbug-commandsToRun
+  ()
+  "The list of commands waiting to be sent to the proxy.")
+
 (defun jbug-get-proxy-command()
   "Return the shell command to start the proxy program."
   (if jbug-proxy-command
@@ -205,7 +211,7 @@ setting it as the value of the jbug-proxy-command variable.
 
 Start the proxy and set the filter which handles strings received on stdin from
 the proxy.  There is a special debugger command (proxy) that does nothing but
-wait for the proxy to signal that it has started. Execute the command.
+wait for the proxy to signal that it has started. Execute that command.
 
 #+BEGIN_SRC emacs-lisp :noweb-ref start-proxy
 
@@ -215,7 +221,7 @@ wait for the proxy to signal that it has started. Execute the command.
        "proxy"
        "proxy"
        (list "proxy")
-       (jbug-makeCommandHashEntry
+       (jbug-makeCommandDescription
        "proxy"
         (lambda (_c) ())
         ""
@@ -238,18 +244,199 @@ wait for the proxy to signal that it has started. Execute the command.
 
 #+END_SRC
 
-** Debugger Commands
+** Output
 
-These are the commands a user can enter to the debugger.
-
-A list created by the function jbug-makeCommandHashEntry describes a command.
-
-A hash table called jbug-commandHashMap contains the lists.  The string a user
-enters to invoke a command indexes the map so the command can be found when a
-user enters it.
+The debugger outputs its results by writing them to the process buffer created
+when it started. The buffer is an ORG mode buffer and the output contains org
+headers and tables.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
-(defun jbug-makeCommandHashEntry (hashKey badCommandP describeCommand executeCommand)
+
+(defvar jbug-sourceDirectory nil "Root directory of the sources for the target JAVA program.")
+(defconst jbug-orgTableSeperator    "|----|\n"   "String to seperate table title from contents.")
+
+(defun jbug-writeToOutputBuffer (string)
+  "Write a string to the bottom of the jbug buffer.
+PROC - the proxy process
+STRING - the string to write in the buffer"
+  (when (buffer-live-p (process-buffer jbug-proxyProcess))
+    (with-current-buffer (process-buffer  jbug-proxyProcess)
+      (save-excursion
+        (goto-char (point-max))
+        (beginning-of-line)
+        (insert string)))))
+
+  (defun jbug-writeTableToOutputBuffer (title sep rows)
+    (when (buffer-live-p (process-buffer jbug-proxyProcess))
+      (with-current-buffer (process-buffer jbug-proxyProcess)
+        (save-excursion
+          ;; Insert the text, advancing the process marker.
+          (goto-char (point-max))
+          (insert (concat "\n\n" title))
+          (let ((tableStart (point)))
+            (insert sep)
+            (insert (jbug-dataLayout rows))
+            (goto-char tableStart)
+            (ignore-errors (org-ctrl-c-ctrl-c)))))))
+
+  (defun jbug-dataLayout (args)
+    (if args
+        (let ((s "| ")
+              (stack ())
+              (rc 0)
+              (ac 0))
+          (push (list rc args) stack)
+          (while stack
+            (cond
+             ((not args)
+              (let ((a (pop stack)))
+                (setq args (nth 1 a))
+                (setq rc     (nth 0 a))))
+             ((listp (car args))
+              (push (list rc (cdr args)) stack)
+              (setq args (car args)))
+             ((not (listp (car args)))
+              (let ((v (car args)))
+                (setq args (cdr args))
+                (while (/= rc ac)
+                  (cond
+                   ((< ac rc)
+                    (setq s (concat s " | "))
+                    (setq ac (1+ ac)))
+                   ((> ac rc)
+                    (setq s (concat s "\n| "))
+                    (setq ac 0))))
+                (setq s (concat s v))
+                (setq rc (1+ rc))))))
+          s)
+      ""))
+
+(defun jbug-reportBreak (preface thread location)
+  "Insert the desciption of a breakpoint into the jbug buffer.
+PREFACE - a breakpoint or a step
+THREAD - the thread in which the breakpoint occured
+LOCATION - the location of the breakpoint"
+  (setq jbug-defaultThread (jbug-threadID thread))
+  (setq jbug-defaultFrame 0)
+  (jbug-writeToOutputBuffer
+   (concat
+    "** "
+    preface
+    " in thread "
+    (jbug-threadID thread)
+    " frame "
+    (number-to-string jbug-defaultFrame)
+    " at "
+    (jbug-locationFile location)
+    ":"
+    (jbug-locationLineNumber location)
+    " ("
+    (if (jbug-locationMethod location) (jbug-locationMethod location) "")
+    ")\n"))
+  (jbug-setSourceFileWindow
+   jbug-proxyProcess
+   (jbug-locationFile location)
+   (jbug-locationLineNumber location)))
+
+(defun jbug-threadID                    (args) "Get id from thread descriptor list ARGS."                                   (nth 0 args))
+(defun jbug-threadName             (args) "Get name from thread descriptor list ARGS."                           (nth 1 args))
+(defun jbug-threadState               (args) "Get state from thread descriptor list ARGS."                              (nth 2 args))
+(defun jbug-threadFrames          (args) "Get frame count  from thread descriptor list ARGS."              (nth 3 args))
+(defun jbug-threadBreakpoint   (args) "Is thread at breakpoint from thread descriptor list ARGS."  (nth 4 args))
+(defun jbug-threadSuspended   (args) "Is thread suspended  from thread descriptor list ARGS."      (nth 5 args))
+
+(defun jbug-locationFile                   (args) "Get file name from location descriptor list ARGS."          (nth 0 args))
+(defun jbug-locationLineNumber (args) "Get line number from location descriptor list ARGS."     (nth 1 args))
+(defun jbug-locationMethod            (args) "Get method name from location descriptor list ARGS."  (nth 2 args))
+
+;; Make the output buffer right,
+
+(defun jbug-fix-output-buffer ()
+  "Put point at the end of the jbug buffer, if the buffer exists."
+  (let ((buf (process-buffer  jbug-proxyProcess)))
+        (when (and (buffer-live-p buf)
+                   (get-buffer-window buf))
+          (select-window (get-buffer-window buf))
+          (goto-char (point-max))
+          (if (and (s-blank? jbug-receivedFromProxy)
+                   (not jbug-commandsToRun))
+              (insert "\n-> ")))))
+
+#+END_SRC
+
+*** Set windows
+
+We would really like two output windows. One with the source file in it, the
+cursor on the current line, a bookmark on that line, and that line in the middle
+of the window. The other showing the org file with the cursor on the last
+line. Maybe we can get this, maybe not.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+(defun jbug-setSourceFileWindow (proc file line)
+"Display the source file in the source file window.
+PROC - proxy process
+FILE   - source file
+LINE  - current line in source file"
+;; (message (format "setsourcewindow %s | %s | %s\n" jbug-sourceDirectory file (concat jbug-sourceDirectory file)))
+  (let ((bug (find-file-noselect (concat jbug-sourceDirectory file))))
+    (when (and bug (buffer-live-p (process-buffer proc)))
+      (if (= (length (window-list)) 1)
+          (split-window))
+      (let ((source (jbug-winForOtherBuffer bug (process-buffer proc))))
+        (if source
+            (select-window source)
+          (set-buffer bug))
+        (goto-char (point-min))
+        (forward-line (1- (string-to-number line)))
+        (bm-remove-all-all-buffers)
+        (bm-toggle)
+        (if (eq (window-buffer) bug) (recenter-top-bottom)))
+      (let ((procWin (jbug-winForOtherBuffer (process-buffer proc) bug)))
+        (if procWin
+            (select-window procWin)
+          (set-buffer (process-buffer proc)))
+        (goto-char (point-max))))))
+
+(defun jbug-winForOtherBuffer (buffer notbuffer)
+  "Given the the two dugger buffers (BUFFER and NOTBUFFER) set the windows properly."
+  (let ((win (get-buffer-window buffer)))
+    (when (not win)
+      (let  ((wl (window-list)))
+        (while (and wl (eq notbuffer (window-buffer (car wl))))
+          (setq wl (cdr wl)))
+        (setq win (if wl (car wl) (car (window-list))))
+        (set-window-buffer win buffer)))
+    win))
+#+END_SRC
+
+** User Commands
+
+These are the commands a user can enter to the debugger. A user enters a command
+by writing it on the last line of the output buffer and then pressing return.
+
+User commands are strings which are tokens seperated by spaces and  terminated
+by a return. The first token identifies the command; it is the index to the
+command's description in a hash table named jbug-commandHashMap.
+
+*** Defining commands
+**** Describing a command.
+
+A list created by the function jbug-makeCommandDescription describes a command.
+
+The list four members:
+
+1.  a string uniquely identifying the command. This string will be the first
+   token in a command entered by a user,
+
+2.  a function which checks a string to see if it is a valid command of this
+   type,
+
+3.  a string describing the command, and
+
+4. a function  which executes the command.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+(defun jbug-makeCommandDescription (hashKey badCommandP describeCommand executeCommand)
   "Create the list which defines a command in the CommandHashMap.
 HASHKEY         - the command name
 BADCOMMANDP     - a function returning true if the command syntax is incorrect.
@@ -281,15 +468,28 @@ EXECUTECOMMAND  - a function which executes the command"
   "Execute the the command F using the CommandHashMapEntry E."
   (funcall (jbug-hashDoCommand e) f))
 
+  #+END_SRC
+
+**** Command HashMap
+
+A hash table called jbug-commandHashMap contains the command descriptors.  The
+first token of a string a user enters to invoke a command indexes the map.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
 (defconst jbug-commandHashMap
   (ht-create)
   "Create the map containing all the commands.")
 
 #+END_SRC
 
-The code to fill jbug-commandHashMap is found in a later section.
+*** Working with commands
 
-*** Input a command
+Commands are entered by the user. The user can  repeat commands  with a command
+history.  The user can enter multiple commands seperated by a semicolon so
+commands can be queued for execution.
+
+**** Input a command
 
 Input to the elisp program comes from the org buffer created when the mode
 starts. The user enters a line at the end of the buffer and types a
@@ -398,8 +598,6 @@ send a command to the proxy.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 
-(defvar jbug-commandsToRun  () "The list of commands waiting to be sent to the proxy.")
-
 (defun jbug-add-commands (com)
   "Check the syntax of each command in the list COM.
 If it is valid, put it on the list of commands to be run.
@@ -447,7 +645,7 @@ process."
 
 #+END_SRC
 
-*** Describing a Command Waiting to be Executed
+**** Describing a Command Waiting to be Executed
 
 What exactly gets put on the jbug-commandsToRun queue?
 
@@ -480,7 +678,7 @@ ENTRY   - the command's entry in the hash table jbug-commandHashMap."
 
 #+END_SRC
 
-*** Run a command
+**** Run a command
 
 Commands run one at a time, that is, a new command is not started until the
 previous command has finished. The command which is currently running is kept in
@@ -522,12 +720,12 @@ All sorts of things are involved in executing a command:
 
 2. the command (as an ascii string) goes into the command history,
 
-3. the command is written to output,
+3. the command is written to the output buffer,
 
 4. the command is placed in jbug-runningCommand,
 
 5. we run the function contained in the doCommand field of the command's
-   commandHashEntry. This usually sends the command to the proxy.
+   commandHashEntry. This usually sends a string to the proxy.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 (defun jbug-execute-command ()
@@ -540,6 +738,505 @@ They are, no comand is presently running and the waiting to execute list is not 
     (jbug-doCommand
      (jbug-getCommandHashEntry jbug-runningCommand)
      (jbug-getSplitFromCommandDescription jbug-runningCommand))))
+#+END_SRC
+
+*** Commands defined
+
+Commands are created and entered into jbug-commandHashMap in a single elisp
+statement.
+
+***** access
+
+Set an access watchpoint.
+
+Request for notification when the contents of a field are accessed in the target
+VM. This event will be triggered when the specified field is accessed by Java
+programming language code or by a Java Native Interface (JNI) get function.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "access"
+ (jbug-makeCommandDescription
+  "access"
+  (lambda (c) (/= (length c) 3))
+  "access class-name field-name"
+  (lambda (c)
+    (jbug-sendStringToProxy
+     (format
+      "access,%s,%s\n"
+      (nth 1 c)
+      (nth 2 c))))))
+
+#+END_SRC
+
+***** arguments
+
+Print the arguments to a method.
+
+By default prints all local variables but can specify the variables to print
+with a variable descriptor string.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "arguments"
+ (jbug-makeCommandDescription
+  "arguments"
+  (lambda (c) (or (< (length c) 1) (> (length c) 4)))
+  "arguments  [variable names] [thread] [frame]"
+  (lambda (c)
+    (jbug-sendStringToProxy     (jbug-dots c)))))
+
+#+END_SRC
+
+***** attach
+
+Attach the debugger to the target VM.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "attach"
+   (jbug-makeCommandDescription
+    "attach"
+    (lambda (c) (or (/= (length c) 3)  (not (string-match "[0-9]+" (nth 2 c)))))
+    "attach host  [port number ]"
+    (lambda (c)
+      (jbug-sendStringToProxy       (format "attach,%s,%s\n" (nth 1 c) (nth 2 c))))))
+#+END_SRC
+
+***** break
+
+Set a breakpoint in the target VM.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "break"
+ (jbug-makeCommandDescription
+  "break"
+  (lambda (c) (/= (length c) 3))
+  "break class-name <line-number|method name>"
+  (lambda (c)
+    (jbug-sendStringToProxy  (format "break,%s,%s\n" (nth 1 c) (nth 2 c))))))
+
+#+END_SRC
+
+***** breaks
+
+List breakpoints enabled in the target VM.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "breaks"
+   (jbug-makeCommandDescription "breaks"
+                                   (lambda (c) (/= (length c) 1))
+                                   "breaks"
+                                   (lambda (_c)
+                                     (jbug-sendStringToProxy  "breaks\n"))))
+
+#+END_SRC
+***** catch
+
+Request notification when an exception occurs in the target VM.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "catch"
+   (jbug-makeCommandDescription
+    "catch"
+    (lambda (c) (or (/= (length c) 2)  (and (not (string-match "on" (nth 1 c))) (not (string-match "off" (nth 1 c))))))
+    "catch on|off"
+    (lambda (c)
+      (jbug-sendStringToProxy
+       (format  "catch,%s\n"  (nth 1 c))))))
+
+#+END_SRC
+
+***** classes
+
+Print all classes loaded in the target VM.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "classes"
+   (jbug-makeCommandDescription
+    "classes"
+    (lambda (c) (/= (length c) 1))
+    "classes"
+    (lambda (_c)
+      (jbug-sendStringToProxy "classes\n"))))
+
+#+END_SRC
+***** clear
+
+Clear all breakpoints or the specified breakpoint.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "clear"
+   (jbug-makeCommandDescription
+    "clear"
+    (lambda (c)
+      (or (/= (length c) 2)
+          (and
+           (not (string-match "[0-9]+" (nth 1 c)))
+           (not (string= "all" (nth 1 c))))))
+    "clear [breakpoint-id/all]"
+    (lambda (c)
+      (jbug-sendStringToProxy
+       (format
+        "clear,%s\n"
+        (nth 1 c))))))
+
+#+END_SRC
+***** down
+
+Set the default frame to the frame directly below the current default frame.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "down"
+   (jbug-makeCommandDescription "down"
+                              (lambda (c) (and (/= (length c) 1) (/= (length c) 2)))
+                               "down"
+                               (lambda (c)
+                                 (setq jbug-defaultFrame (1+ jbug-defaultFrame))
+                                 (jbug-sendStringToProxy
+                                  (format
+                                   "stack,%s\n"
+                                   (if (= 1 (length c)) jbug-defaultThread (nth 1 c)))))))
+#+END_SRC
+
+***** fields
+
+Prints all the fields of a given class.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "fields"
+   (jbug-makeCommandDescription "fields"
+                               (lambda (c) (/= (length c) 2))
+                               "fields"
+                               (lambda (c)
+                                 (jbug-sendStringToProxy
+                                  (format "fields,%s\n" (nth 1 c))))))
+
+#+END_SRC
+
+***** help
+
+Prints a short description of every debugger command.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "help"
+   (jbug-makeCommandDescription "help"
+                               (lambda (_c) ())
+                               "help"
+                               (lambda (_c)
+                                 (dolist (v
+                                          (sort (ht-map (lambda (_key value) (jbug-hashDescribeCommand value)) jbug-commandHashMap) 'string<))
+                                  (jbug-sendStringToProxy (concat v "\n")))
+                                 (setq jbug-runningCommand ())
+                                 (jbug-fix-output-buffer ))))
+
+#+END_SRC
+
+***** locals
+
+Print local variables with their values.
+
+By default prints all local variables but can specify the variables to print
+with a variable descriptor string.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "locals"
+ (jbug-makeCommandDescription
+  "locals"
+  (lambda (c) (or (< (length c) 1) (> (length c) 4)))
+  "locals  [variable names] [thread] [frame]"
+  (lambda (c)
+    (jbug-sendStringToProxy (jbug-dots c)))))
+
+#+END_SRC
+
+***** back, into, next
+
+Execute a single step in the target VM.
+
+back - step out of the current frame
+into - step to the next location on a different line or into a new frame,
+next - step to the next location on a different line and over a new frame.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "back"
+   (jbug-makeCommandDescription "back"
+                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
+                               "back [thread-id]"
+                               (lambda (c)
+                                 (jbug-sendStringToProxy
+                                  (format
+                                   "back,%s\n"
+                                   (if (= (length c) 1) jbug-defaultThread (nth 1 c)))))))
+
+(ht-set
+ jbug-commandHashMap
+ "into"
+   (jbug-makeCommandDescription "into"
+                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
+                               "into [thread-id]"
+                               (lambda (c)
+                                 (jbug-sendStringToProxy
+                                  (format
+                                   "into,%s\n"
+                                   (if (= (length c) 1) jbug-defaultThread (nth 1 c)))))))
+
+(ht-set
+ jbug-commandHashMap
+ "next"
+   (jbug-makeCommandDescription "next"
+                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
+                               "next [thread-id]"
+                               (lambda (c)
+                                 (jbug-sendStringToProxy
+                                  (format
+                                   "next,%s\n"
+                                   (if (= (length c) 1) jbug-defaultThread (nth 1 c)))))))
+
+#+END_SRC
+
+***** modify
+
+Set a modification watchpoint.
+
+Request notification when a field is set. This event will be triggered when a
+value is assigned to the specified field with a Javatatement (assignment,
+increment, etc) or by a Java Native Interface (JNI) set function Setting a field
+to a value which is the same as the previous value still triggers this event.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "modify"
+   (jbug-makeCommandDescription "modify"
+                               (lambda (c) (/= (length c) 3))
+                               "modify class-name field-name"
+                                (lambda (c)
+                                 (jbug-sendStringToProxy
+                                  (format
+                                  "modify,%s,%s\n"
+                                   (nth 1 c)
+                                   (nth 2 c))))))
+
+#+END_SRC
+
+***** prepare
+
+Request notification when a class is prepared in the target VM.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "prepare"
+   (jbug-makeCommandDescription "prepare"
+                               (lambda (c) (/= (length c) 2))
+                               "prepare [class name]"
+                               (lambda (c)
+                                 (jbug-sendStringToProxy (format "prepare,%s\n" (nth 1 c))))))
+
+#+END_SRC
+
+***** quit
+
+End the debugging session.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "quit"
+   (jbug-makeCommandDescription "quit"
+                               (lambda (c) (/= (length c) 1))
+                               "quit"
+                               (lambda (_c)
+                                 (jbug-sendStringToProxy  "quit\n"))))
+
+#+END_SRC
+
+***** run
+
+Start or resume program execution.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "run"
+   (jbug-makeCommandDescription "run"
+                               (lambda (c) (/= (length c) 1))
+                               "run"
+                               (lambda (_c)
+                                 (jbug-sendStringToProxy  "run\n"))))
+
+(ht-set
+ jbug-commandHashMap
+ "continue"
+   (jbug-makeCommandDescription "continue"
+                               (lambda (c) (/= (length c) 1))
+                               "continue"
+                               (lambda (_c)
+                                 (jbug-sendStringToProxy "run\n"))))
+
+#+END_SRC
+
+***** set
+
+Set the jbug-defaultThread which will be used by future commands. Use the 'threads'
+command to get a list of threads and their ids.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "set"
+   (jbug-makeCommandDescription "set"
+                               (lambda (c) (or (/= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c)))))
+                               "set [thread-id]"
+                               (lambda (c)
+                                 (setq jbug-defaultThread (nth 1 c))
+                                 (jbug-sendStringToProxy  "threads\n"))))
+
+#+END_SRC
+
+***** stack
+
+Print the stack of method calls which have brought us to this point.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "stack"
+   (jbug-makeCommandDescription "stack"
+                               (lambda (c) (and (/= (length c) 1) (/= (length c) 2)))
+                               "stack [thread]"
+                               (lambda (c)
+                                 (jbug-sendStringToProxy
+                                  (format
+                                   "stack,%s\n"
+                                   (if (= 1 (length c)) jbug-defaultThread (nth 1 c)))))))
+
+#+END_SRC
+
+***** this
+
+Prints the object pointed to by the 'this' JAVA keyword in the default thread
+and default frame.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "this"
+ (jbug-makeCommandDescription
+  "this"
+  (lambda (c) (or (< (length c) 1) (> (length c) 4)))
+  "this  [variable names]  [thread]  [frame]"
+  (lambda (c)  (jbug-sendStringToProxy   (jbug-dots c)))))
+
+#+END_SRC
+
+***** threads
+
+Prints the running threads and their status.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+ jbug-commandHashMap
+ "threads"
+   (jbug-makeCommandDescription "threads"
+                                   (lambda (c) (/= (length c) 1))
+                                   "threads"
+                                   (lambda (_c)  (jbug-sendStringToProxy  "threads\n"))))
+
+#+END_SRC
+
+***** up
+
+Decrement jbug-defaultFrame moving it closer to the current frame.
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(ht-set
+jbug-commandHashMap
+ "up"
+   (jbug-makeCommandDescription "up"
+                              (lambda (_c) (message "try up") nil)
+                               "up"
+                               (lambda (_c)
+                                 (message "upping %s" jbug-defaultFrame)
+                                 (if (> jbug-defaultFrame 0)
+                                   (setq jbug-defaultFrame (1- jbug-defaultFrame)))
+                                 (message "upped %s %s" jbug-defaultFrame (format "stack,%s\n"
+                                                                                    jbug-defaultThread))
+                                 (jbug-sendStringToProxy
+                                  (format "stack,%s\n"
+                                          jbug-defaultThread)))))
+
+#+END_SRC
+***** Miscellaneous helper  functions
+
+#+BEGIN_SRC emacs-lisp :tangle jbug.el
+
+(defun jbug-dots (c)
+  "Fill out a dot descriptor C with default values if necessary."
+  (let ((a (concat (nth 0 c)  ",%s,%s,%s\n")))
+    (cond
+      ((= (length c) 1)
+       (format a  jbug-defaultThread jbug-defaultFrame (jbug-setDotNotation "")))
+      ((= (length c) 2)
+       (format a jbug-defaultThread jbug-defaultFrame (jbug-setDotNotation (nth 1 c))))
+      ((= (length c) 3)
+       (format a (nth 2 c) jbug-defaultFrame (jbug-setDotNotation (nth 1 c))))
+      ((= (length c) 4)
+       (format a (nth 2 c) (nth 3 c)  (jbug-setDotNotation (nth 1 c)))))))
+
+(defun jbug-setDotNotation(a)
+"Put array string A into dot notation for proxy."
+  (setq a (s-trim a))
+  (let ((b (if (string= a "") () (-take 6 (s-split "[.]" a)))))
+    (while (< (length b) 6) (setq b (-snoc b "*")))
+    (s-join "." b)))
+
 #+END_SRC
 
 ** Responses from the proxy
@@ -648,12 +1345,12 @@ debugger. The functions listed below manage the list of response hash tables.
 
 *** Sending commands in a response function.
 
-A response function can send one or more new commands to the proxy. Sending
-commands immediately, after some of the response functions have executed but
-before others have completed, or while a list of commands is queued to be sent to
-the proxy, can result in the most remarkable mess. So, response functions add
-proxy commands to a special queue (jbug-responseCommands) and when all responses
-are done jbug-insertion-filter will queue these commands for execution.
+A response function can send one or more commands to the proxy. Sending commands
+immediately, after some of the response functions have executed but before
+others have completed, or while a list of commands is queued to be sent to the
+proxy, can result in the most remarkable mess. So, response functions add proxy
+commands to a special queue (jbug-responseCommands) and when all responses are
+done jbug-insertion-filter will queue these commands for execution.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 
@@ -667,12 +1364,12 @@ are done jbug-insertion-filter will queue these commands for execution.
 
 *** Receive a Response
 
-The proxy sends strings to this elisp program through stdout. EMACS passes the
-string this program by calling the function jbug-insertion-filter.  That
-function can be called at any time. It may return a whole string transmitted by
-the proxy or only a fragment of the string so we have to buffer the string
-returned. A full response string is ended by a new line. We may receive multiple
-response strings in a single call to jbug-insertion-filter.
+The proxy sends strings to this elisp program through its stdout. EMACS passes
+those strings to this program by calling the function jbug-insertion-filter.
+That function can be called at any time. It may return a whole string
+transmitted by the proxy or only a fragment of the string so we have to buffer
+the string returned. A full response string is ended by a new line. We may
+receive multiple response strings in a single call to jbug-insertion-filter.
 
 When we get a response, we split it on the commas and use the first field to
 look up the response's entry in the jbug-response-hash-table hash map. If the
@@ -699,7 +1396,7 @@ STRING is the input from the proxy"
   (let ((com (split-string jbug-receivedFromProxy "\n" 't)))
 
     (if (s-ends-with? "\n" string)
-        (setq jbug-receivedFromProxy ())
+        (setq jbug-receivedFromProxy "")
       (setq jbug-receivedFromProxy (-last-item com))
       (setq com                                    (-butlast com)))
 
@@ -745,178 +1442,24 @@ STRING is the input from the proxy"
           (insert (format "\n%s" coms))
           (jbug-newline))))))
 
-;; Make the output buffer right,
+          #+END_SRC
 
-(defun jbug-fix-output-buffer ()
-  "Put point at the end of the jbug buffer, if it exists."
-  (let ((buf (process-buffer  jbug-proxyProcess)))
-        (when (and (buffer-live-p buf)
-                   (get-buffer-window buf))
-          (select-window (get-buffer-window buf))
-          (goto-char (point-max))
-          (if (not jbug-commandsToRun) (insert "\n-> ")))))
-#+END_SRC
+*** Default Response Hash Table
 
-** Output
-
-The debugger outputs its results by writing them to the process buffer created
-when it started. The buffer is an ORG mode buffer.
+Sets the list of response tables (jbug-responseTables ) to a list with one
+entry, the default response table.  The default response table contains a
+function for every proxy response; usually it outputs a representation of the
+response. This table is set at initialization and so is always present, unless
+explicitly removed.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 
-(defvar jbug-sourceDirectory nil "Root directory of the sources for the target JAVA program.")
-(defconst jbug-orgTableSeperator    "|----|\n"   "String to seperate table title from contents.")
-
-(defun jbug-writeToOutputBuffer (string)
-  "Write a string to the bottom of the jbug buffer.
-PROC - the proxy process
-STRING - the string to write in the buffer"
-  (when (buffer-live-p (process-buffer jbug-proxyProcess))
-    (with-current-buffer (process-buffer  jbug-proxyProcess)
-      (save-excursion
-        (goto-char (point-max))
-        (beginning-of-line)
-        (insert string)))))
-
-  (defun jbug-writeTableToOutputBuffer (title sep rows)
-    (when (buffer-live-p (process-buffer jbug-proxyProcess))
-      (with-current-buffer (process-buffer jbug-proxyProcess)
-        (save-excursion
-          ;; Insert the text, advancing the process marker.
-          (goto-char (point-max))
-          (insert (concat "\n\n" title))
-          (let ((tableStart (point)))
-            (insert sep)
-            (insert (jbug-dataLayout rows))
-            (goto-char tableStart)
-            (ignore-errors (org-ctrl-c-ctrl-c)))))))
-
-  (defun jbug-dataLayout (args)
-    (if args
-        (let ((s "| ")
-              (stack ())
-              (rc 0)
-              (ac 0))
-          (push (list rc args) stack)
-          (while stack
-            (cond
-             ((not args)
-              (let ((a (pop stack)))
-                (setq args (nth 1 a))
-                (setq rc     (nth 0 a))))
-             ((listp (car args))
-              (push (list rc (cdr args)) stack)
-              (setq args (car args)))
-             ((not (listp (car args)))
-              (let ((v (car args)))
-                (setq args (cdr args))
-                (while (/= rc ac)
-                  (cond
-                   ((< ac rc)
-                    (setq s (concat s " | "))
-                    (setq ac (1+ ac)))
-                   ((> ac rc)
-                    (setq s (concat s "\n| "))
-                    (setq ac 0))))
-                (setq s (concat s v))
-                (setq rc (1+ rc))))))
-          s)
-      ""))
-
-(defun jbug-reportBreak (preface thread location)
-  "Insert the desciption of a breakpoint into the jbug buffer.
-PREFACE - a breakpoint or a step
-THREAD - the thread in which the breakpoint occured
-LOCATION - the location of the breakpoint"
-  (setq jbug-defaultThread (jbug-threadID thread))
-  (setq jbug-defaultFrame 0)
-  (jbug-writeToOutputBuffer
-   (concat
-    "** "
-    preface
-    " in thread "
-    (jbug-threadID thread)
-    " frame "
-    (number-to-string jbug-defaultFrame)
-    " at "
-    (jbug-locationFile location)
-    ":"
-    (jbug-locationLineNumber location)
-    " ("
-    (if (jbug-locationMethod location) (jbug-locationMethod location) "")
-    ")\n"))
-  (jbug-setSourceFileWindow
-   jbug-proxyProcess
-   (jbug-locationFile location)
-   (jbug-locationLineNumber location)))
-
-(defun jbug-threadID                    (args) "Get id from thread descriptor list ARGS."                                   (nth 0 args))
-(defun jbug-threadName             (args) "Get name from thread descriptor list ARGS."                           (nth 1 args))
-(defun jbug-threadState               (args) "Get state from thread descriptor list ARGS."                              (nth 2 args))
-(defun jbug-threadFrames          (args) "Get frame count  from thread descriptor list ARGS."              (nth 3 args))
-(defun jbug-threadBreakpoint   (args) "Is thread at breakpoint from thread descriptor list ARGS."  (nth 4 args))
-(defun jbug-threadSuspended   (args) "Is thread suspended  from thread descriptor list ARGS."      (nth 5 args))
-
-(defun jbug-locationFile                   (args) "Get file name from location descriptor list ARGS."          (nth 0 args))
-(defun jbug-locationLineNumber (args) "Get line number from location descriptor list ARGS."     (nth 1 args))
-(defun jbug-locationMethod            (args) "Get method name from location descriptor list ARGS."  (nth 2 args))
-
-#+END_SRC
-
-*** Set windows
-
-We would really like two windows. One with the source file in it, the cursor on
-the current line, a bookmark on that line, and that line in the middle of the
-window. The other showing the org file with the cursor on the last line. Maybe
-we can get this, maybe not.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-(defun jbug-setSourceFileWindow (proc file line)
-"Display the source file in the source file window.
-PROC - proxy process
-FILE   - source file
-LINE  - current line in source file"
-;; (message (format "setsourcewindow %s | %s | %s\n" jbug-sourceDirectory file (concat jbug-sourceDirectory file)))
-  (let ((bug (find-file-noselect (concat jbug-sourceDirectory file))))
-    (when (and bug (buffer-live-p (process-buffer proc)))
-      (if (= (length (window-list)) 1)
-          (split-window))
-      (let ((source (jbug-winForOtherBuffer bug (process-buffer proc))))
-        (if source
-            (select-window source)
-          (set-buffer bug))
-        (goto-char (point-min))
-        (forward-line (1- (string-to-number line)))
-        (bm-remove-all-all-buffers)
-        (bm-toggle)
-        (if (eq (window-buffer) bug) (recenter-top-bottom)))
-      (let ((procWin (jbug-winForOtherBuffer (process-buffer proc) bug)))
-        (if procWin
-            (select-window procWin)
-          (set-buffer (process-buffer proc)))
-        (goto-char (point-max))))))
-
-(defun jbug-winForOtherBuffer (buffer notbuffer)
-  "Given the the two dugger buffers (BUFFER and NOTBUFFER) set the windows properly."
-  (let ((win (get-buffer-window buffer)))
-    (when (not win)
-      (let  ((wl (window-list)))
-        (while (and wl (eq notbuffer (window-buffer (car wl))))
-          (setq wl (cdr wl)))
-        (setq win (if wl (car wl) (car (window-list))))
-        (set-window-buffer win buffer)))
-    win))
-#+END_SRC
-
-** Commands and Responses
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
 (defun jbug-initializeResponseTables ()
-"Set the basic response table."
+"Set the default response table."
   (setq jbug-responseTables ())
 
   (jbug-addResponseTable
-   "base environment"
+   "default environment"
    (ht
 
     (jbug-accessWatchpointSet-response
@@ -1237,505 +1780,9 @@ LINE  - current line in source file"
        (concat (nth 0 (nth 1 x)) ":" (nth 1 (nth 1 x)))))
     breakpoints)))
 
-#+END_SRC
-
-*** Commands
-**** access
-
-Set an access watchpoint.
-
-Request for notification when the contents of a field are accessed in the target
-VM. This event will be triggered when the specified field is accessed by Java
-programming language code or by a Java Native Interface (JNI) get function.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "access"
- (jbug-makeCommandHashEntry
-  "access"
-  (lambda (c) (/= (length c) 3))
-  "access class-name field-name"
-  (lambda (c)
-    (jbug-sendStringToProxy
-     (format
-      "access,%s,%s\n"
-      (nth 1 c)
-      (nth 2 c))))))
-
-#+END_SRC
-
-**** arguments
-
-Print the arguments to a method.
-
-By default prints all local variables but can specify the variables to print
-with a variable descriptor string.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "arguments"
- (jbug-makeCommandHashEntry
-  "arguments"
-  (lambda (c) (or (< (length c) 1) (> (length c) 4)))
-  "arguments  [variable names] [thread] [frame]"
-  (lambda (c)
-    (jbug-sendStringToProxy     (jbug-dots c)))))
-
-#+END_SRC
-
-**** attach
-
-Attach the debugger to the target VM.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "attach"
-   (jbug-makeCommandHashEntry
-    "attach"
-    (lambda (c) (or (/= (length c) 3)  (not (string-match "[0-9]+" (nth 2 c)))))
-    "attach host  [port number ]"
-    (lambda (c)
-      (jbug-sendStringToProxy       (format "attach,%s,%s\n" (nth 1 c) (nth 2 c))))))
-#+END_SRC
-
-**** break
-
-Set a breakpoint in the target VM.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "break"
- (jbug-makeCommandHashEntry
-  "break"
-  (lambda (c) (/= (length c) 3))
-  "break class-name <line-number|method name>"
-  (lambda (c)
-    (jbug-sendStringToProxy  (format "break,%s,%s\n" (nth 1 c) (nth 2 c))))))
-
-#+END_SRC
-
-**** breaks
-
-List breakpoints enabled in the target VM.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "breaks"
-   (jbug-makeCommandHashEntry "breaks"
-                                   (lambda (c) (/= (length c) 1))
-                                   "breaks"
-                                   (lambda (_c)
-                                     (jbug-sendStringToProxy  "breaks\n"))))
-
-#+END_SRC
-**** catch
-
-Request notification when an exception occurs in the target VM.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "catch"
-   (jbug-makeCommandHashEntry
-    "catch"
-    (lambda (c) (or (/= (length c) 2)  (and (not (string-match "on" (nth 1 c))) (not (string-match "off" (nth 1 c))))))
-    "catch on|off"
-    (lambda (c)
-      (jbug-sendStringToProxy
-       (format  "catch,%s\n"  (nth 1 c))))))
-
-#+END_SRC
-
-**** classes
-
-Print all classes loaded in the target VM.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "classes"
-   (jbug-makeCommandHashEntry
-    "classes"
-    (lambda (c) (/= (length c) 1))
-    "classes"
-    (lambda (_c)
-      (jbug-sendStringToProxy "classes\n"))))
-
-#+END_SRC
-**** clear
-
-Clear all breakpoints or the specified breakpoint.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "clear"
-   (jbug-makeCommandHashEntry
-    "clear"
-    (lambda (c)
-      (or (/= (length c) 2)
-          (and
-           (not (string-match "[0-9]+" (nth 1 c)))
-           (not (string= "all" (nth 1 c))))))
-    "clear [breakpoint-id/all]"
-    (lambda (c)
-      (jbug-sendStringToProxy
-       (format
-        "clear,%s\n"
-        (nth 1 c))))))
-
-#+END_SRC
-**** down
-
-Set the default frame to the frame directly below the current default frame.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "down"
-   (jbug-makeCommandHashEntry "down"
-                              (lambda (c) (and (/= (length c) 1) (/= (length c) 2)))
-                               "down"
-                               (lambda (c)
-                                 (setq jbug-defaultFrame (1+ jbug-defaultFrame))
-                                 (jbug-sendStringToProxy
-                                  (format
-                                   "stack,%s\n"
-                                   (if (= 1 (length c)) jbug-defaultThread (nth 1 c)))))))
-#+END_SRC
-
-**** fields
-
-Prints all the fields of a given class.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "fields"
-   (jbug-makeCommandHashEntry "fields"
-                               (lambda (c) (/= (length c) 2))
-                               "fields"
-                               (lambda (c)
-                                 (jbug-sendStringToProxy
-                                  (format "fields,%s\n" (nth 1 c))))))
-
-#+END_SRC
-
-**** help
-
-Prints a short description of every debugger command.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "help"
-   (jbug-makeCommandHashEntry "help"
-                               (lambda (_c) ())
-                               "help"
-                               (lambda (_c)
-                                 (dolist (v
-                                          (sort (ht-map (lambda (_key value) (jbug-hashDescribeCommand value)) jbug-commandHashMap) 'string<))
-                                  (jbug-sendStringToProxy (concat v "\n")))
-                                 (setq jbug-runningCommand ())
-                                 (jbug-fix-output-buffer ))))
-
-#+END_SRC
-
-**** locals
-
-Print local variables with their values.
-
-By default prints all local variables but can specify the variables to print
-with a variable descriptor string.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "locals"
- (jbug-makeCommandHashEntry
-  "locals"
-  (lambda (c) (or (< (length c) 1) (> (length c) 4)))
-  "locals  [variable names] [thread] [frame]"
-  (lambda (c)
-    (jbug-sendStringToProxy (jbug-dots c)))))
-
-#+END_SRC
-
-**** back, into, next
-
-Execute a single step in the target VM.
-
-back - step out of the current frame
-into - step to the next location on a different line or into a new frame,
-next - step to the next location on a different line and over a new frame.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "back"
-   (jbug-makeCommandHashEntry "back"
-                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
-                               "back [thread-id]"
-                               (lambda (c)
-                                 (jbug-sendStringToProxy
-                                  (format
-                                   "back,%s\n"
-                                   (if (= (length c) 1) jbug-defaultThread (nth 1 c)))))))
-
-(ht-set
- jbug-commandHashMap
- "into"
-   (jbug-makeCommandHashEntry "into"
-                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
-                               "into [thread-id]"
-                               (lambda (c)
-                                 (jbug-sendStringToProxy
-                                  (format
-                                   "into,%s\n"
-                                   (if (= (length c) 1) jbug-defaultThread (nth 1 c)))))))
-
-(ht-set
- jbug-commandHashMap
- "next"
-   (jbug-makeCommandHashEntry "next"
-                               (lambda (c) (or (> (length c) 2)  (and (= (length c) 2) (not (string-match "[0-9]+" (nth 1 c))))))
-                               "next [thread-id]"
-                               (lambda (c)
-                                 (jbug-sendStringToProxy
-                                  (format
-                                   "next,%s\n"
-                                   (if (= (length c) 1) jbug-defaultThread (nth 1 c)))))))
-
-#+END_SRC
-
-**** modify
-
-Set a modification watchpoint.
-
-Request notification when a field is set. This event will be triggered when a
-value is assigned to the specified field with a Javatatement (assignment,
-increment, etc) or by a Java Native Interface (JNI) set function Setting a field
-to a value which is the same as the previous value still triggers this event.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "modify"
-   (jbug-makeCommandHashEntry "modify"
-                               (lambda (c) (/= (length c) 3))
-                               "modify class-name field-name"
-                                (lambda (c)
-                                 (jbug-sendStringToProxy
-                                  (format
-                                  "modify,%s,%s\n"
-                                   (nth 1 c)
-                                   (nth 2 c))))))
-
-#+END_SRC
-
-**** prepare
-
-Request notification when a class is prepared in the target VM.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "prepare"
-   (jbug-makeCommandHashEntry "prepare"
-                               (lambda (c) (/= (length c) 2))
-                               "prepare [class name]"
-                               (lambda (c)
-                                 (jbug-sendStringToProxy (format "prepare,%s\n" (nth 1 c))))))
-
-#+END_SRC
-
-**** quit
-
-End the debugging session.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "quit"
-   (jbug-makeCommandHashEntry "quit"
-                               (lambda (c) (/= (length c) 1))
-                               "quit"
-                               (lambda (_c)
-                                 (jbug-sendStringToProxy  "quit\n"))))
-
-#+END_SRC
-
-**** run
-
-Start or resume program execution.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "run"
-   (jbug-makeCommandHashEntry "run"
-                               (lambda (c) (/= (length c) 1))
-                               "run"
-                               (lambda (_c)
-                                 (jbug-sendStringToProxy  "run\n"))))
-
-(ht-set
- jbug-commandHashMap
- "continue"
-   (jbug-makeCommandHashEntry "continue"
-                               (lambda (c) (/= (length c) 1))
-                               "continue"
-                               (lambda (_c)
-                                 (jbug-sendStringToProxy "run\n"))))
-
-#+END_SRC
-
-**** set
-
-Set the jbug-defaultThread which will be used by future commands. Use the 'threads'
-command to get a list of threads and their ids.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "set"
-   (jbug-makeCommandHashEntry "set"
-                               (lambda (c) (or (/= (length c) 2)  (not (string-match "[0-9]+" (nth 1 c)))))
-                               "set [thread-id]"
-                               (lambda (c)
-                                 (setq jbug-defaultThread (nth 1 c))
-                                 (jbug-sendStringToProxy  "threads\n"))))
-
-#+END_SRC
-
-**** stack
-
-Print the stack of method calls which have brought us to this point.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "stack"
-   (jbug-makeCommandHashEntry "stack"
-                               (lambda (c) (and (/= (length c) 1) (/= (length c) 2)))
-                               "stack [thread]"
-                               (lambda (c)
-                                 (jbug-sendStringToProxy
-                                  (format
-                                   "stack,%s\n"
-                                   (if (= 1 (length c)) jbug-defaultThread (nth 1 c)))))))
-
-#+END_SRC
-
-**** this
-
-Prints the object pointed to by the 'this' JAVA keyword in the default thread
-and default frame.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "this"
- (jbug-makeCommandHashEntry
-  "this"
-  (lambda (c) (or (< (length c) 1) (> (length c) 4)))
-  "this  [variable names]  [thread]  [frame]"
-  (lambda (c)  (jbug-sendStringToProxy   (jbug-dots c)))))
-
-#+END_SRC
-
-**** threads
-
-Prints the running threads and their status.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
- jbug-commandHashMap
- "threads"
-   (jbug-makeCommandHashEntry "threads"
-                                   (lambda (c) (/= (length c) 1))
-                                   "threads"
-                                   (lambda (_c)  (jbug-sendStringToProxy  "threads\n"))))
-
-#+END_SRC
-
-**** up
-
-Decrement jbug-defaultFrame moving it closer to the current frame.
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
-(ht-set
-jbug-commandHashMap
- "up"
-   (jbug-makeCommandHashEntry "up"
-                              (lambda (_c) (message "try up") nil)
-                               "up"
-                               (lambda (_c)
-                                 (message "upping %s" jbug-defaultFrame)
-                                 (if (> jbug-defaultFrame 0)
-                                   (setq jbug-defaultFrame (1- jbug-defaultFrame)))
-                                 (message "upped %s %s" jbug-defaultFrame (format "stack,%s\n"
-                                                                                    jbug-defaultThread))
-                                 (jbug-sendStringToProxy
-                                  (format "stack,%s\n"
-                                          jbug-defaultThread)))))
-
-#+END_SRC
-
-*** Miscellaneous responses from the debugger proxy
-
-#+BEGIN_SRC emacs-lisp :tangle jbug.el
-
 (defun jbug-LocationString (l)
   "Return a string describing the location descriptor list L."
   (format "%s:%s %s" (jbug-locationFile l) (jbug-locationLineNumber l) (jbug-locationMethod l)))
-
-(defun jbug-dots (c)
-  "Fill out a dot descriptor C with default values if necessary."
-  (let ((a (concat (nth 0 c)  ",%s,%s,%s\n")))
-    (cond
-      ((= (length c) 1)
-       (format a  jbug-defaultThread jbug-defaultFrame (jbug-setDotNotation "")))
-      ((= (length c) 2)
-       (format a jbug-defaultThread jbug-defaultFrame (jbug-setDotNotation (nth 1 c))))
-      ((= (length c) 3)
-       (format a (nth 2 c) jbug-defaultFrame (jbug-setDotNotation (nth 1 c))))
-      ((= (length c) 4)
-       (format a (nth 2 c) (nth 3 c)  (jbug-setDotNotation (nth 1 c)))))))
-
-(defun jbug-setDotNotation(a)
-"Put array string A into dot notation for proxy."
-  (setq a (s-trim a))
-  (let ((b (if (string= a "") () (-take 6 (s-split "[.]" a)))))
-    (while (< (length b) 6) (setq b (-snoc b "*")))
-    (s-join "." b)))
 
 #+END_SRC
 
