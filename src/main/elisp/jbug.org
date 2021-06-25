@@ -1429,20 +1429,22 @@ STRING is the input from the proxy"
 
           (jbug-fix-output-buffer)))
 
-    ; Check if responses are done. If so,  it may be time to execute a queued command.
-    ; Sometimes responses will queue commands to be executed. Add them to queue
-    ; of commands waiting to execute when everything has calmed down.
+    ; If a command is executing,  wait until it finishes.
+    ; If part of a response is pending, wait until it finishes.
+    ; If a command is waiting for execution, run it.
+    ; If responses have queued commands, queue them for execution.
 
-    (when (not jbug-receivedFromProxy)
-      (if (not jbug-responseCommands)
-          (jbug-execute-command)
-        (let ((coms (s-join ";" (reverse jbug-responseCommands))))
-          (setq jbug-responseCommands ())
-          (goto-char (point-max))
-          (insert (format "\n%s" coms))
-          (jbug-newline))))))
+    (cond
+       ((or jbug-runningCommand (not (s-blank? jbug-receivedFromProxy))))
+       (jbug-commandsToRun (jbug-execute-command))
+       (jbug-responseCommands
+         (let ((coms (s-join ";" (reverse jbug-responseCommands))))
+           (setq jbug-responseCommands ())
+           (goto-char (point-max))
+           (insert (format "\n%s" coms))
+           (jbug-newline))))))
 
-          #+END_SRC
+#+END_SRC
 
 *** Default Response Hash Table
 
@@ -1813,6 +1815,11 @@ PORT - port to which attach debugger"
       ".\n\tPort: "  port ".\n\n"));
     (delete-other-windows)
     (jbug-mode)
+
+    (setq jbug-runningCommand ())
+    (setq jbug-receivedFromProxy "")
+    (setq jbug-commandsToRun ())
+    (setq jbug-responseCommands ())
 
     ;; Set up the response tables.
 
