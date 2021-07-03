@@ -168,9 +168,8 @@ class DebuggerOutput extends Thread {
 
     public void run() {
 
-        out.println(PROXYSTARTED_RESPONSE);
+        out.println(PROXYSTARTED_RESPONSE + "," + identify.timestamp + "," + identify.directory);
         out.println(COMMAND_READY_RESPONSE);
-        output_log("Entering DebuggerOutput: " + identify.timestamp + " " + identify.directory);
 
         while (true) {
             try {

@@ -956,7 +956,7 @@ Prints a short description of every debugger command.
                                (lambda (_c)
                                  (dolist (v
                                           (sort (ht-map (lambda (_key value) (jbug-hashDescribeCommand value)) jbug-commandHashMap) 'string<))
-                                  (jbug-sendStringToProxy (concat v "\n")))
+                                  (jbug-writeToOutputBuffer (concat v "\n")))
                                  (setq jbug-runningCommand ())
                                  (jbug-fix-output-buffer ))))
 
@@ -1502,14 +1502,6 @@ explicitly removed.
            th)))))
 
 
-    (jbug-breakpointCleared-response
-     (function (lambda (_env response)
-        (jbug-display-breakpoints
-         (mapcar
-          (lambda (x)  (list (car x) (-slice x 1)))
-          (-partition-in-steps 4 4 (-slice response  1)))))))
-
-
     (jbug-breakpointCreated-response
      (function (lambda (_env response)
         (let
@@ -1529,13 +1521,7 @@ explicitly removed.
 
     (jbug-breakpointList-response
      (function (lambda (_env response)
-        (jbug-display-breakpoints
-         (mapcar
-          (lambda (x)
-            (list
-             (car x)
-             (-slice x 1)))
-          (-partition-in-steps 4 4 (-slice response  1)))))))
+        (jbug-display-breakpoints response))))
 
 
     (jbug-catchEnabled-response
@@ -1625,7 +1611,7 @@ explicitly removed.
 
     (jbug-log-response
      (function (lambda (_env response)
-        (jbug-writeToOutputBuffer (concat (nth 1 response) ".\n")))))
+        (jbug-writeToOutputBuffer (concat "Log: " (nth 1 response) ".\n")))))
 
 
     (jbug-modificationWatchpoint-response
@@ -1659,6 +1645,7 @@ explicitly removed.
         (jbug-writeToOutputBuffer (concat "Preparing class " (nth 1 response) ".\n")))))
 
 
+
     (jbug-proxyExited-response
      (function (lambda (_env _response)
         (jbug-writeToOutputBuffer "Debugger proxy exited\n")
@@ -1666,9 +1653,8 @@ explicitly removed.
 
 
     (jbug-proxyStarted-response
-     (function (lambda (_env _response)
-        (jbug-writeToOutputBuffer "Debugger proxy started\n"))))
-
+     (function (lambda (_env response)
+        (jbug-writeToOutputBuffer (concat "Debugger proxy started\n     proxy identity timestamp: " (nth 1 response) "\n     proxy identity directory: " (nth 2 response) "\n")))))
 
     (jbug-stack-response
      (function (lambda (_env response)
@@ -1768,19 +1754,27 @@ explicitly removed.
     )))
 
 
-(defun jbug-display-breakpoints (breakpoints)
+(defun jbug-display-breakpoints (resp)
   "Display list of breakpoints (BREAKPOINTS)."
-  (jbug-writeToOutputBuffer
-   "Breakpoints")
-  (jbug-writeTableToOutputBuffer
-   "|id|location|\n"
-   jbug-orgTableSeperator
-   (mapcar
-    (lambda (x)
-      (list
-       (nth 0 x)
-       (concat (nth 0 (nth 1 x)) ":" (nth 1 (nth 1 x)))))
-    breakpoints)))
+  (if (< (length resp) 5)
+      (jbug-writeToOutputBuffer  "No Breakpoints\n")
+    (let ((bps (mapcar
+                (lambda (x)
+                  (list
+                   (car x)
+                  (-slice x 1)))
+                (-partition-in-steps 4 4 (-slice resp 1)))))
+      (jbug-writeToOutputBuffer  "Breakpoints")
+      (jbug-writeTableToOutputBuffer
+       "|id|location|\n"
+       jbug-orgTableSeperator
+       (mapcar
+        (lambda (x)
+          (list
+           (nth 0 x)
+           (concat (nth 0 (nth 1 x)) ":" (nth 1 (nth 1 x)))))
+        bps)))))
+
 
 (defun jbug-LocationString (l)
   "Return a string describing the location descriptor list L."

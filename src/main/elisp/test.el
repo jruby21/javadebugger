@@ -60,13 +60,11 @@ Connect with the target program on port number PORT."
    "*testProc*"
    "java"
    "-cp"
-   "/home/jruby/dev/javadebugger/src/main/java"
+   "/home/jruby/dev/db/src/main/java"
    (format "-agentlib:jdwp=transport=dt_socket,address=localhost:%d,server=y,suspend=y" port)
-   "test.foo"
-   "3"
-   "4")
+   "test.foo")
 
-  (load-file "/home/jruby/dev/javadebugger/src/main/elisp/jbug.el")
+  (load-file "/home/jruby/dev/db/src/main/elisp/jbug.el")
 
   ;;; Set the test up once the javadebugger has been initialized.
 
@@ -76,8 +74,8 @@ Connect with the target program on port number PORT."
 
   ;;; Start the javadebugger.
 
-    (setq jbug-proxy-command "java -cp /home/jruby/dev/javadebugger/src/main/java/jbug.jar com.github.jruby21.javadebugger.JavaDebuggerProxy")
-  (jbug "/home/jruby/dev/javadebugger/src/main/java" "test.foo" "127.0.0.1" (number-to-string port)))
+    (setq jbug-proxy-command "java -cp /home/jruby/dev/db/src/main/java/jbug.jar com.github.jruby21.javadebugger.JavaDebuggerProxy")
+  (jbug "/home/jruby/dev/db/src/main/java" "test.foo" "127.0.0.1" (number-to-string port)))
 
 (defun jbug-TestWaitForInitialisation ()
   "Called from the javadebugger after the debugger has started and initialized.
@@ -97,11 +95,11 @@ debugger commands for execution."
          (jbug-addResponseCommand
           (cond
 
-           ((and (string= lm "main") (not (string= ln "44")))
-            (format "breaks;clear all;breaks;break test.foo 44;break test.foo sum;next %s;next %s;next %s;locals * %s 0;continue"
+           ((and (string= lm "main") (not (string= ln "35")))
+            (format "breaks;clear all;breaks;break test.foo 35;break test.foo sum;next %s;next %s;next %s;locals * %s 0;continue"
                     jbug-testThread jbug-testThread jbug-testThread  jbug-testThread))
-           ((and (string= lm "main") (string= ln "44"))
-            (format "locals * %s 0;stack %s;next %s;next %s;into %s;next %s;next %s;next %s;next %s; next %s;classes;fields test.tree.Node;stack %s;back %s;stack %s;continue"
+           ((and (string= lm "main") (string= ln "35"))
+            (format "locals * %s 0;stack %s;next %s;next %s;into %s;next %s;next %s;next %s;next %s; next %s;fields test.tree.Node;stack %s;back %s;stack %s;continue"
                     jbug-testThread jbug-testThread jbug-testThread  jbug-testThread  jbug-testThread  jbug-testThread  jbug-testThread
                     jbug-testThread jbug-testThread jbug-testThread  jbug-testThread  jbug-testThread
                     jbug-testThread))
