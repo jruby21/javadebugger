@@ -96,7 +96,7 @@ debugger commands for execution."
           (cond
 
            ((and (string= lm "main") (not (string= ln "35")))
-            (format "breaks;clear all;breaks;break test.foo 35;break test.foo sum;next %s;next %s;next %s;locals * %s 0;continue"
+            (format "breaks;clear all;breaks;break test.foo 35;break test.foo sum;next %s;breaks;next %s;next %s;into;stack;arguments;back;locals * %s 0;continue"
                     jbug-testThread jbug-testThread jbug-testThread  jbug-testThread))
            ((and (string= lm "main") (string= ln "35"))
             (format "locals * %s 0;stack %s;next %s;next %s;into %s;next %s;next %s;next %s;next %s; next %s;fields test.tree.Node;stack %s;back %s;stack %s;continue"
@@ -110,8 +110,7 @@ debugger commands for execution."
                     jbug-testThread))))))))
 
     (jbug-accessWatchpoint-response
-     (function (lambda (_env  _resp)
-       ())))
+     (function (lambda (_env  _resp) ())))
 
     (jbug-modificationWatchpoint-response
      (function (lambda (_env  _resp)

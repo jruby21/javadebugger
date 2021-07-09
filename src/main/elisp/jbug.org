@@ -160,16 +160,6 @@ setting it as the value of the jbug-proxy-command variable.
 
 #+BEGIN_SRC emacs-lisp :tangle jbug.el
 
-(defconst
-  jbug-toolsJar
-  "tools.jar"
-  "The jar containing the JDI java debugger api (JDI) classes.")
-
-(defconst
-  jbug-jbugJar
-  "jbug.jar"
-  "The jar containing the jbug proxy classes.")
-
 (defcustom
   jbug-proxy-command
   nil
@@ -189,17 +179,23 @@ setting it as the value of the jbug-proxy-command variable.
   ()
   "The list of commands waiting to be sent to the proxy.")
 
-(defun jbug-get-proxy-command()
-  "Return the shell command to start the proxy program."
-  (if jbug-proxy-command
-      jbug-proxy-command
-    (let ((base (file-name-directory (find-lisp-object-file-name major-mode nil))))
-      (concat
-       " java -cp "
-       (expand-file-name jbug-jbugJar base)
-       (if (or (eq system-type  'ms-dos) (eq system-type 'windows-nt)) ";" ":")
-       (expand-file-name jbug-toolsJar base)
-       " com.github.jruby21.javadebugger.JavaDebuggerProxy"))))
+
+(defun jbug-set-proxy-command ()
+; get the shell command to start the proxy program.
+  (if (s-blank? jbug-proxy-command)
+      (setq
+       jbug-proxy-command
+       (concat
+        " java -cp "
+        (expand-file-name
+         jbug-jbugJar
+         (file-name-directory (find-lisp-object-file-name major-mode nil)))
+        " com.github.jruby21.javadebugger.JavaDebuggerProxy")))
+
+  (message "major mode %s proxy command: %s"
+           major-mode
+           jbug-proxy-command))
+
 
 (defun jbug-sendStringToProxy (s)
   "Write the string S to standard output and so to the proxy."
@@ -227,8 +223,6 @@ wait for the proxy to signal that it has started. Execute that command.
         ""
         (lambda (_c) ""))))
 
-(message "proxy jars: %s %s" major-mode (jbug-get-proxy-command))
-
 ;; delete any previously created proxies
 
 (dolist (p (process-list))
@@ -238,7 +232,7 @@ wait for the proxy to signal that it has started. Execute that command.
 ;; start a new proxy
 
 (setq jbug-receivedFromProxy "")
-(setq  jbug-proxyProcess  (apply 'start-process "jbugProxy"  (current-buffer) (split-string (jbug-get-proxy-command))))
+(setq jbug-proxyProcess (apply 'start-process "jbugProxy"  (current-buffer) (split-string jbug-proxy-command)))
 (set-process-filter jbug-proxyProcess 'jbug-insertion-filter)
 (set-process-query-on-exit-flag jbug-proxyProcess nil)
 
@@ -359,7 +353,8 @@ LOCATION - the location of the breakpoint"
           (select-window (get-buffer-window buf))
           (goto-char (point-max))
           (if (and (s-blank? jbug-receivedFromProxy)
-                   (not jbug-commandsToRun))
+                   (not jbug-commandsToRun)
+                   (not jbug-runningCommand))
               (insert "\n-> ")))))
 
 #+END_SRC
@@ -1799,6 +1794,8 @@ PORT - port to which attach debugger"
     (insert "#+STARTUP: showeverything\n")
     (goto-char (point-max))
     (setq jbug-sourceDirectory (file-name-as-directory (expand-file-name src)))
+    (jbug-set-proxy-command)
+
     (insert
      (concat
       "\n\n* "
@@ -1806,7 +1803,9 @@ PORT - port to which attach debugger"
       ".\n\tSource directory: " jbug-sourceDirectory
       ".\n\tMain class: " mn
       ".\n\tHost: " host
-      ".\n\tPort: "  port ".\n\n"));
+      ".\n\tPort: "  port
+      ".\n\tProxy Command: "  jbug-proxy-command ".\n\n"))
+
     (delete-other-windows)
     (jbug-mode)
 

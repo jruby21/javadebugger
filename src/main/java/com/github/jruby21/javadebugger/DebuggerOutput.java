@@ -336,7 +336,7 @@ class DebuggerOutput extends Thread {
 
                 if (br == null)   {
                     br = vm.eventRequestManager().createBreakpointRequest(bl);
-                    br.putProperty(NumberProperty, new Integer(bpcount++));
+                    br.putProperty(NumberProperty, Integer.valueOf(bpcount++));
                 }
 
                 br.enable();
